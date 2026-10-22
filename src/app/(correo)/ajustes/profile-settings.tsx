@@ -23,6 +23,7 @@ import { ToggleSwitch } from "@/shared/components/ui/toggle-switch";
 
 import { Avatar } from "../avatar";
 import { useNotificationPermission } from "../mail-watcher";
+import { AgendaSettings } from "./agenda-settings";
 import { DesktopSettings } from "./desktop-settings";
 import { SoundSettings } from "./sound-settings";
 import { TemplateEditor, type TemplateVariable } from "./template-editor";
@@ -125,6 +126,7 @@ export function ProfileSettings({
   signatureHtml,
   prefs: initialPrefs,
   variables,
+  agenda,
 }: {
   email: string;
   name: string;
@@ -134,6 +136,8 @@ export function ProfileSettings({
   signatureHtml: string;
   prefs: Prefs;
   variables: TemplateVariable[];
+  /** Si la agenda de admin.rud1.es está conectada. */
+  agenda: boolean;
 }) {
   const router = useRouter();
   const [fields, setFields] = React.useState(profile);
@@ -250,6 +254,8 @@ export function ProfileSettings({
       <Section title="Sonidos" description="Elige cómo suena cada aviso. Pulsa ▶ para escucharlo." delay={140}>
         <SoundSettings enabled={initialPrefs.sound} prefs={initialPrefs.sounds} />
       </Section>
+
+      {agenda && <AgendaSettings delay={145} />}
 
       <DesktopSettings delay={150} />
 

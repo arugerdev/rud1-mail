@@ -49,6 +49,17 @@ if [ ! -f /opt/rud1-mail/.env ]; then
   echo "   .env creado"
 fi
 
+# 1b. Agenda (la de admin.rud1.es): secreto compartido entre los dos servidores.
+#     Se crea una sola vez; el mismo valor va en rud1-es como RUD1_MAIL_AGENDA_SECRET.
+if ! grep -q "^AGENDA_API_SECRET=" /opt/rud1-mail/.env; then
+  AS=$(openssl rand -base64 64 | tr -dc 'A-Za-z0-9' | head -c 64)
+  {
+    echo "AGENDA_API_URL=https://www.rud1.es/api/v1/correo/agenda"
+    echo "AGENDA_API_SECRET=$AS"
+  } >> /opt/rud1-mail/.env
+  echo "   Agenda: secreto creado (va también en rud1-es como RUD1_MAIL_AGENDA_SECRET)"
+fi
+
 # 2. La API de Mailcow también responde a rud1 Mail.
 RESTART_MAILCOW=0
 if ! grep -q "^API_ALLOW_FROM=.*$APP_IP" mailcow.conf; then

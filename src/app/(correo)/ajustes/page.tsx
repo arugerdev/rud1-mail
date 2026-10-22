@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { agendaConfigured } from "@/lib/agenda";
 import { avatarVersions, fullName, getProfile } from "@/lib/profiles";
 import { requireUser } from "@/lib/session";
 import { TEMPLATE_VARIABLES } from "@/lib/templates";
@@ -27,6 +28,7 @@ export default async function ProfilePage() {
       signatureHtml={profile.signatureHtml}
       prefs={profile.prefs}
       variables={TEMPLATE_VARIABLES}
+      agenda={agendaConfigured()}
     />
   );
 }

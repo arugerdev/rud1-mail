@@ -7,6 +7,7 @@ import {
   Archive,
   Bell,
   BellOff,
+  CalendarDays,
   ChevronRight,
   Download,
   FileText,
@@ -50,6 +51,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useSpring } from "@/shared/hooks/use-spring";
 
 import { setAppBadge, usePwa } from "../pwa";
+import { AgendaReminders } from "./agenda/agenda-reminders";
 import { Avatar } from "./avatar";
 import { useCompose } from "./compose/compose-provider";
 import { useMailWatcher, useNotificationPermission, type LiveState, type WatcherPrefs } from "./mail-watcher";
@@ -310,6 +312,7 @@ function AccountMenu({ user }: { user: ShellUser }) {
 
 export interface ShellApps {
   files: boolean;
+  agenda: boolean;
 }
 
 function SidebarBody({
@@ -347,13 +350,21 @@ function SidebarBody({
       </div>
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-2">
         <FolderNav folders={folders} current={current} sharedNames={sharedNames} />
-        {apps.files && (
+        {(apps.files || apps.agenda) && (
           <nav className="space-y-0.5" aria-label="Espacio de trabajo">
             <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">Trabajo</p>
-            <Link href="/archivos" className={navClass(pathname.startsWith("/archivos"))}>
-              <HardDrive className="size-4 shrink-0" />
-              <span className="truncate">Archivos</span>
-            </Link>
+            {apps.agenda && (
+              <Link href="/agenda" className={navClass(pathname.startsWith("/agenda"))}>
+                <CalendarDays className="size-4 shrink-0" />
+                <span className="truncate">Agenda</span>
+              </Link>
+            )}
+            {apps.files && (
+              <Link href="/archivos" className={navClass(pathname.startsWith("/archivos"))}>
+                <HardDrive className="size-4 shrink-0" />
+                <span className="truncate">Archivos</span>
+              </Link>
+            )}
           </nav>
         )}
         <nav className="space-y-0.5" aria-label="Ajustes">
@@ -543,7 +554,13 @@ export function MailShell({
   const pathname = usePathname();
   const router = useRouter();
   // Ajustes y Archivos no son carpetas de correo: llevan su título en vez del buscador.
-  const section = pathname.startsWith("/ajustes") ? "Ajustes" : pathname.startsWith("/archivos") ? "Archivos" : null;
+  const section = pathname.startsWith("/ajustes")
+    ? "Ajustes"
+    : pathname.startsWith("/archivos")
+      ? "Archivos"
+      : pathname.startsWith("/agenda")
+        ? "Agenda"
+        : null;
   const inSettings = section !== null;
   const current = inSettings ? null : params.get("carpeta") ?? "INBOX";
   const currentFolder = folders.find((f) => f.path === (current ?? "INBOX"));
@@ -607,6 +624,7 @@ export function MailShell({
         <main className="flex min-h-0 flex-1">{children}</main>
       </div>
       <ComposeFab />
+      {apps.agenda && <AgendaReminders />}
     </div>
   );
 }
