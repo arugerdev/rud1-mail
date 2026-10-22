@@ -4,7 +4,7 @@ import { requireAdmin } from "@/lib/admin";
 import { config } from "@/lib/config";
 import { listMailboxes, mailcowAvailable } from "@/lib/mailcow";
 import { fullName, getProfile } from "@/lib/profiles";
-import { getOrgTemplates, TEMPLATE_VARIABLES } from "@/lib/templates";
+import { DEFAULT_FOOTER, DEFAULT_HEADER, getOrgTemplates, TEMPLATE_VARIABLES } from "@/lib/templates";
 
 import { TemplatesSettings } from "./templates-settings";
 
@@ -21,5 +21,13 @@ export default async function TemplatesPage() {
       return { email: b.username, name: fullName(p) };
     });
   if (!people.some((p) => p.email === user.email)) people.unshift({ email: user.email, name: user.name });
-  return <TemplatesSettings templates={getOrgTemplates()} variables={TEMPLATE_VARIABLES} people={people} me={user.email} />;
+  return (
+    <TemplatesSettings
+      templates={getOrgTemplates()}
+      defaults={{ header: DEFAULT_HEADER, footer: DEFAULT_FOOTER }}
+      variables={TEMPLATE_VARIABLES}
+      people={people}
+      me={user.email}
+    />
+  );
 }

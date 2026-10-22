@@ -8,6 +8,7 @@ import MailComposer from "nodemailer/lib/mail-composer";
 import { config } from "@/lib/config";
 import { withImap, withMailbox, type Credentials } from "@/lib/imap";
 import { specialFolderFor, specialFolderPath } from "@/lib/mail/folders";
+import { embedImages, type InlineImage } from "@/lib/mail/inline-images";
 import type { AddressLike } from "@/lib/mail/text";
 
 export interface OutgoingAttachment {
@@ -34,7 +35,7 @@ export interface OutgoingMessage {
   references?: string[];
 }
 
-function composerOptions(from: Credentials & { name: string }, msg: OutgoingMessage) {
+function composerOptions(from: Credentials & { name: string }, msg: OutgoingMessage, inline: InlineImage[] = []) {
   return {
     from: { name: from.name, address: msg.fromAddress ?? from.email },
     to: msg.to,
@@ -46,11 +47,20 @@ function composerOptions(from: Credentials & { name: string }, msg: OutgoingMess
     // Siempre un Message-ID propio: el mismo en lo que viaja y en la copia de
     // Enviados (si no, Postfix pone otro y las conversaciones no casan).
     messageId: msg.messageId ?? `<${randomUUID()}@${config.domain}>`,
-    attachments: msg.attachments.map((a) => ({
-      filename: a.filename,
-      contentType: a.contentType,
-      content: a.content,
-    })),
+    attachments: [
+      ...msg.attachments.map((a) => ({
+        filename: a.filename,
+        contentType: a.contentType,
+        content: a.content,
+      })),
+      ...inline.map((img) => ({
+        filename: img.filename,
+        contentType: img.contentType,
+        content: img.content,
+        cid: img.cid,
+        contentDisposition: "inline" as const,
+      })),
+    ],
     ...(msg.inReplyTo ? { inReplyTo: msg.inReplyTo } : {}),
     ...(msg.references && msg.references.length > 0 ? { references: msg.references } : {}),
   };
@@ -95,7 +105,9 @@ export async function sendMessage(
   credentials: Credentials,
   msg: OutgoingMessage,
 ): Promise<{ messageId: string | null }> {
-  const options = composerOptions({ ...credentials, name: msg.fromName }, msg);
+  // Logos y fotos pegadas, dentro del correo (se ven aunque se bloqueen las imágenes externas).
+  const embedded = await embedImages(msg.html);
+  const options = composerOptions({ ...credentials, name: msg.fromName }, { ...msg, html: embedded.html }, embedded.images);
   const recipients = [...msg.to, ...msg.cc, ...msg.bcc].map((a) => a.address);
   if (recipients.length === 0) throw new SendError("Añade al menos un destinatario");
 

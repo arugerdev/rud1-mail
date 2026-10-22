@@ -218,8 +218,9 @@ export async function getMessage(
     const attachments: AttachmentInfo[] = [];
     parsed.attachments.forEach((att, index) => {
       // Las imágenes que el HTML usa con cid: se muestran dentro del mensaje;
-      // si el HTML no las nombra, se tratan como un adjunto más.
-      if (isInline(att) && parsed.html && parsed.html.includes(`cid:${att.cid}`)) {
+      // si el HTML no las nombra, se tratan como un adjunto más. (mailparser ya
+      // cambia cid: por data: en el HTML; las que usa quedan marcadas `related`.)
+      if (isInline(att) && parsed.html && (att.related || parsed.html.includes(`cid:${att.cid}`))) {
         inlineImages[att.cid!] = `data:${att.contentType};base64,${att.content.toString("base64")}`;
         return;
       }

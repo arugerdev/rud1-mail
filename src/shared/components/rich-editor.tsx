@@ -3,6 +3,7 @@
 import * as React from "react";
 import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import Image from "@tiptap/extension-image";
 import TextAlign from "@tiptap/extension-text-align";
 import { Color, TextStyle } from "@tiptap/extension-text-style";
 import { Placeholder } from "@tiptap/extensions";
@@ -13,6 +14,7 @@ import {
   Bold,
   Heading1,
   Heading2,
+  ImagePlus,
   Italic,
   Link2,
   List,
@@ -40,6 +42,51 @@ import {
  * Produce HTML sencillo que entienden todos los clientes de correo; el
  * servidor lo vuelve a limpiar antes de enviarlo.
  */
+
+/** Fotos pegadas o insertadas: se reducen para que el correo no pese de más. */
+const MAX_IMAGE_SIDE = 1600;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+
+export async function imageFileToDataUrl(file: File): Promise<string | null> {
+  if (!/^image\/(png|jpe?g|gif|webp)$/i.test(file.type)) return null;
+  // Los GIF se dejan tal cual (perderían la animación).
+  if (file.type === "image/gif") {
+    if (file.size > MAX_IMAGE_BYTES) return null;
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+  }
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  // PNG si puede tener transparencia (capturas, logos); si no, JPEG, que pesa mucho menos.
+  const url = file.type === "image/png" ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.85);
+  const smaller = url.length > MAX_IMAGE_BYTES * 1.37 && file.type === "image/png" ? canvas.toDataURL("image/jpeg", 0.85) : url;
+  return smaller.length > MAX_IMAGE_BYTES * 1.37 ? null : smaller;
+}
+
+async function insertImages(editor: Editor, files: File[]): Promise<void> {
+  for (const file of files) {
+    const src = await imageFileToDataUrl(file).catch(() => null);
+    if (src) editor.chain().focus().setImage({ src, alt: file.name.replace(/\.[^.]+$/, "") }).run();
+  }
+}
+
+function pickImages(editor: Editor): void {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/png,image/jpeg,image/gif,image/webp";
+  input.multiple = true;
+  input.onchange = () => void insertImages(editor, Array.from(input.files ?? []));
+  input.click();
+}
 
 const COLORS = [
   { name: "Negro", value: "#111827" },
@@ -180,6 +227,9 @@ export function Toolbar({ editor, compact = false }: { editor: Editor; compact?:
       <ToolButton label="Enlace (Ctrl+K)" active={s.link} onClick={() => setLink(editor)}>
         <Link2 className="size-4" />
       </ToolButton>
+      <ToolButton label="Imagen (también puedes pegarla)" onClick={() => pickImages(editor)}>
+        <ImagePlus className="size-4" />
+      </ToolButton>
       {!compact && (
         <>
           <Separator />
@@ -248,11 +298,20 @@ export const RichEditor = React.forwardRef<
       TextStyle,
       Color,
       TextAlign.configure({ types: ["heading", "paragraph"] }),
+      Image.configure({ allowBase64: true, HTMLAttributes: { style: "max-width:100%;height:auto" } }),
       Placeholder.configure({ placeholder: placeholder ?? "" }),
     ],
     content: initialHtml,
     editorProps: {
       attributes: { class: cn("h-full", contentClassName) },
+      // Una imagen pegada (captura, foto) va dentro del mensaje.
+      handlePaste: (_view, event) => {
+        const files = Array.from(event.clipboardData?.files ?? []).filter((f) => f.type.startsWith("image/"));
+        if (files.length === 0 || !editorRef.current) return false;
+        event.preventDefault();
+        void insertImages(editorRef.current, files);
+        return true;
+      },
       handleKeyDown: (view, event) => {
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
           event.preventDefault();

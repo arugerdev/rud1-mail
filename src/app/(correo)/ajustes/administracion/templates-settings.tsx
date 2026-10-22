@@ -14,11 +14,13 @@ import { TemplateEditor, type TemplateVariable } from "../template-editor";
 
 export function TemplatesSettings({
   templates,
+  defaults,
   variables,
   people,
   me,
 }: {
   templates: OrgTemplates;
+  defaults: { header: string; footer: string };
   variables: TemplateVariable[];
   people: { email: string; name: string }[];
   me: string;
@@ -72,7 +74,7 @@ export function TemplatesSettings({
       <Card className="rud1-in" style={{ animationDelay: "60ms" }}>
         <CardHeader>
           <CardTitle className="text-lg">Cabecera</CardTitle>
-          <CardDescription>Por ejemplo, el logotipo o un aviso. Mejor algo breve.</CardDescription>
+          <CardDescription>El logotipo de rud1 con una línea fina, como la hoja de carta. Mejor algo breve.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <ToggleSwitch
@@ -88,6 +90,7 @@ export function TemplatesSettings({
             preview={preview}
             placeholder="Texto o imagen que irá encima de cada mensaje"
             minHeight={90}
+            defaultHtml={defaults.header}
           />
         </CardContent>
       </Card>
@@ -95,7 +98,7 @@ export function TemplatesSettings({
       <Card className="rud1-in" style={{ animationDelay: "120ms" }}>
         <CardHeader>
           <CardTitle className="text-lg">Pie</CardTitle>
-          <CardDescription>La firma corporativa: nombre, puesto, contacto, web, aviso legal…</CardDescription>
+          <CardDescription>La firma de marca de rud1 con los datos de cada persona (los saca de su perfil).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <ToggleSwitch
@@ -110,6 +113,7 @@ export function TemplatesSettings({
             variables={variables}
             preview={preview}
             minHeight={140}
+            defaultHtml={defaults.footer}
           />
         </CardContent>
       </Card>
