@@ -38,6 +38,8 @@ export const config = {
     key: process.env.MAILCOW_API_KEY ?? null,
     /** Solo para el túnel de desarrollo: el certificado no coincide con 127.0.0.1. */
     insecureTls: process.env.MAILCOW_API_INSECURE_TLS === "1",
+    /** Nombre del certificado cuando se entra por la red interna (host "nginx"). */
+    servername: process.env.MAIL_TLS_SERVERNAME ?? "mail.rud1.es",
   },
   get sessionSecret(): string {
     const secret = required("SESSION_SECRET");

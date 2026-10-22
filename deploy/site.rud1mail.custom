@@ -1,0 +1,35 @@
+# rud1 Mail en la portada de mail.rud1.es.
+#
+# Este archivo va en /opt/mailcow-dockerized/data/conf/nginx/ y Mailcow lo
+# incluye dentro de su propio servidor (sites-default.conf → site.*.custom).
+# No se puede redefinir su "location /", así que se toman solo las rutas de
+# rud1 Mail, con coincidencia exacta (=) o prefijo prioritario (^~), que ganan
+# a las de Mailcow. Todo lo demás sigue siendo de Mailcow: /admin,
+# /domainadmin, /SOGo, /api/v1, Autodiscover, ActiveSync, .well-known…
+#
+# IP fija del contenedor (deploy/docker-compose.yml): si no está en marcha, da
+# 502 en estas rutas pero Nginx (y el resto del correo) arranca igual.
+
+set $rud1mail http://172.22.1.240:3100;
+
+location = / {
+    include /etc/nginx/conf.d/rud1mail.proxy;
+}
+location = /entrar {
+    include /etc/nginx/conf.d/rud1mail.proxy;
+}
+location = /cambiar-contrasena {
+    include /etc/nginx/conf.d/rud1mail.proxy;
+}
+location ^~ /_next/ {
+    include /etc/nginx/conf.d/rud1mail.proxy;
+}
+location ^~ /api/adjunto {
+    include /etc/nginx/conf.d/rud1mail.proxy;
+}
+location ^~ /api/estado {
+    include /etc/nginx/conf.d/rud1mail.proxy;
+}
+location ~ ^/(manifest\.webmanifest|sw\.js|offline\.html|icon\.svg|icon-192\.png|icon-512\.png|icon-maskable-512\.png|apple-touch-icon\.png|favicon-32x32\.png|favicon\.ico)$ {
+    include /etc/nginx/conf.d/rud1mail.proxy;
+}

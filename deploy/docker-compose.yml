@@ -1,0 +1,40 @@
+# rud1 Mail en el servidor de correo, junto a Mailcow.
+#
+# Va en la red interna de Mailcow con una IP fija: así habla con Dovecot,
+# Postfix y la API sin salir a internet, y Mailcow puede reconocerla
+# (API_ALLOW_FROM, redes de confianza de Dovecot). Nginx de Mailcow le pasa
+# las peticiones de mail.rud1.es (ver site.rud1mail.custom).
+
+name: rud1-mail
+
+services:
+  rud1-mail:
+    build:
+      context: ./app
+    image: rud1-mail:latest
+    container_name: rud1-mail
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MAIL_DOMAIN: rud1.es
+      IMAP_HOST: dovecot
+      IMAP_PORT: "993"
+      SMTP_HOST: postfix
+      SMTP_PORT: "587"
+      MAIL_TLS_SERVERNAME: mail.rud1.es
+      MAILCOW_API_URL: https://nginx/api/v1
+    networks:
+      mailcow:
+        ipv4_address: 172.22.1.240
+    # Sin puertos publicados: solo se llega a través del Nginx de Mailcow.
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  mailcow:
+    name: mailcowdockerized_mailcow-network
+    external: true

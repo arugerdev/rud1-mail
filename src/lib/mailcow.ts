@@ -41,7 +41,7 @@ function request<T>(method: "GET" | "POST", path: string, body?: unknown): Promi
           Accept: "application/json",
           ...(payload ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) } : {}),
         },
-        ...(target.protocol === "https:" ? { rejectUnauthorized: !insecureTls } : {}),
+        ...(target.protocol === "https:" ? { rejectUnauthorized: !insecureTls, servername: config.mailcow.servername } : {}),
         timeout: 15_000,
       },
       (res) => {
