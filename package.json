@@ -1,0 +1,59 @@
+{
+  "name": "rud1-mail",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bandeja de correo de rud1 (mail.rud1.es)",
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/lib/mail/text.test.ts"
+  },
+  "dependencies": {
+    "@radix-ui/react-avatar": "^1.1.1",
+    "@radix-ui/react-dialog": "^1.1.2",
+    "@radix-ui/react-dropdown-menu": "^2.1.2",
+    "@radix-ui/react-label": "^2.1.0",
+    "@radix-ui/react-separator": "^1.1.0",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@radix-ui/react-tooltip": "^1.1.4",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "html-to-text": "^10.0.1",
+    "imapflow": "^1.0.191",
+    "iron-session": "^8.0.4",
+    "lucide-react": "^0.460.0",
+    "mailparser": "^3.7.2",
+    "next": "^15.5.28",
+    "next-themes": "^0.4.4",
+    "nodemailer": "^10.2.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "sanitize-html": "^2.18.1",
+    "server-only": "^0.0.1",
+    "sonner": "^1.7.1",
+    "tailwind-merge": "^2.6.0",
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/html-to-text": "^9.0.4",
+    "@types/mailparser": "^3.4.5",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/sanitize-html": "^2.13.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^15.5.28",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

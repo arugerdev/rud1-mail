@@ -1,0 +1,69 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# Next.js
+.next/
+out/
+build/
+dist/
+
+# Production
+*.tsbuildinfo
+next-env.d.ts
+
+# Environment
+# Regla general: cualquier .env queda fuera salvo la plantilla de ejemplo.
+.env*
+!.env.example
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# IDEs
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Vercel
+.vercel
+
+# Testing
+coverage/
+.nyc_output/
+
+# Prisma
+prisma/dev.db
+prisma/dev.db-journal
+
+# Misc
+*.log
+.cache/
+.turbo/
+
+# Worker de pdfjs: lo copia scripts/copy-pdf-worker.mjs en cada build
+public/pdfjs/
+
+# Worker de MapLibre: lo copia scripts/copy-maplibre-worker.mjs en cada build
+public/maplibre/
