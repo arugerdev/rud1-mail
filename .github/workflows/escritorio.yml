@@ -1,0 +1,87 @@
+name: Instaladores de escritorio
+
+# Genera los instaladores de rud1 Mail para Windows, macOS y Linux.
+# - A mano (Actions → "Instaladores de escritorio" → Run workflow): se descargan
+#   desde la propia ejecución, en "Artifacts".
+# - Con una etiqueta escritorio-vX.Y.Z: además se publican en una Release.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "escritorio-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            script: dist:win
+            files: |
+              desktop/release/*.exe
+          - name: macOS
+            os: macos-latest
+            script: dist:mac
+            files: |
+              desktop/release/*.dmg
+          - name: Linux
+            os: ubuntu-latest
+            script: dist:linux
+            files: |
+              desktop/release/*.AppImage
+              desktop/release/*.deb
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Pruebas
+        run: npm test
+
+      - name: Generar instaladores
+        env:
+          # Sin certificados todavía: los instaladores salen sin firmar
+          # (Windows avisa con SmartScreen y macOS pide "Abrir igualmente").
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run ${{ matrix.script }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rud1-mail-${{ matrix.name }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+
+  release:
+    name: Publicar
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/escritorio-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: instaladores
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: rud1 Mail ${{ github.ref_name }}
+          files: instaladores/*

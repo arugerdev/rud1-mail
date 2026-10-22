@@ -45,6 +45,13 @@ Con la app instalada:
   dispositivo: solo el código y los iconos de la app.
 
 Los iconos salen de `public/favicon.svg` con `node scripts/generate-icons.mjs`.
+
+## App de escritorio con instalador
+
+Además de la PWA, hay instaladores clásicos (`.exe`, `.dmg`, `.AppImage`,
+`.deb`) en [`desktop/`](desktop/README.md): una ventana propia que abre
+mail.rud1.es, con bandeja del sistema, contador y enlaces `mailto:`. Los
+genera GitHub Actions para los tres sistemas.
 La instalación necesita HTTPS: funciona en `mail.rud1.es` y en `localhost`.
 
 ## Desarrollo

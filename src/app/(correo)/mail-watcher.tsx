@@ -13,7 +13,17 @@ interface InboxState {
 
 const POLL_MS = 60_000;
 
-async function notify(state: NonNullable<InboxState["latest"]>) {
+/** Lo que expone la app de escritorio (desktop/src/preload.ts). */
+interface DesktopBridge {
+  isDesktop: true;
+  focus: () => void;
+}
+
+function desktopBridge(): DesktopBridge | undefined {
+  return (window as Window & { rud1Desktop?: DesktopBridge }).rud1Desktop;
+}
+
+async function notify(state: NonNullable<InboxState["latest"]>, open: (url: string) => void) {
   const title = state.from ? `Correo de ${state.from}` : "Correo nuevo";
   const options: NotificationOptions = {
     body: state.subject,
@@ -22,6 +32,16 @@ async function notify(state: NonNullable<InboxState["latest"]>) {
     tag: `rud1-mail-${state.uid}`,
     data: { url: mailHref({ mensaje: state.uid }) },
   };
+  // En la app de escritorio, el aviso del sistema trae la ventana al frente al pulsarlo.
+  const desktop = desktopBridge();
+  if (desktop) {
+    const notification = new Notification(title, options);
+    notification.onclick = () => {
+      desktop.focus();
+      open(options.data.url);
+    };
+    return;
+  }
   // Con el service worker, pulsar el aviso trae la app al frente aunque esté cerrada la pestaña.
   const registration = await navigator.serviceWorker?.getRegistration().catch(() => undefined);
   if (registration) await registration.showNotification(title, options);
@@ -65,7 +85,7 @@ export function useMailWatcher() {
         "Notification" in window &&
         Notification.permission === "granted"
       ) {
-        void notify(latest).catch(() => undefined);
+        void notify(latest, (url) => router.push(url)).catch(() => undefined);
       }
     };
 

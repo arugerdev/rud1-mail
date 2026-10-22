@@ -47,7 +47,9 @@ export function PwaProvider({ children }: { children: React.ReactNode }) {
   const [isIos, setIsIos] = React.useState(false);
 
   React.useEffect(() => {
-    setStandalone(detectStandalone());
+    // Dentro de la app de escritorio ya está "instalada": no se ofrece instalar.
+    const inDesktop = "rud1Desktop" in window;
+    setStandalone(inDesktop || detectStandalone());
     setIsIos(/iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
 
     // En desarrollo no: el código cambia en cada guardado y la caché lo estropearía.

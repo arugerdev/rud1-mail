@@ -241,6 +241,17 @@ function useComposeFromUrl() {
     const qs = rest.toString();
     router.replace(qs ? `/?${qs}` : "/");
   }, [params, router, compose]);
+
+  // La app de escritorio pide abrir el redactor (menú, bandeja, mailto:) sin recargar.
+  React.useEffect(() => {
+    const onCompose = (event: Event) => {
+      const mailto = (event as CustomEvent<{ mailto: string | null }>).detail?.mailto;
+      const fields = mailto ? parseMailto(mailto) : null;
+      compose.open(fields ? { mode: "new", ...fields } : { mode: "new" });
+    };
+    window.addEventListener("rud1-desktop:compose", onCompose);
+    return () => window.removeEventListener("rud1-desktop:compose", onCompose);
+  }, [compose]);
 }
 
 function SidebarBody({ user, folders, current }: { user: ShellUser; folders: Folder[]; current: string }) {
