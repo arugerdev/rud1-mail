@@ -9,6 +9,16 @@ import { removeSoundAction, savePrefsAction, uploadSoundAction } from "@/app/act
 import { SOUND_EVENTS, SOUND_GROUPS, SOUNDS, type SoundEvent, type SoundId, type SoundPrefs } from "@/lib/sound-catalog";
 import { cn } from "@/lib/utils";
 import { Button } from "@/shared/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/components/ui/select";
 import { ToggleSwitch } from "@/shared/components/ui/toggle-switch";
 
 import { customSoundUrl } from "../sound-provider";
@@ -132,27 +142,32 @@ export function SoundSettings({ enabled: initialEnabled, prefs: initial }: { ena
                 </div>
                 <div className="flex flex-col gap-2 sm:w-80">
                   <div className="flex items-center gap-2">
-                    <select
+                    <Select
                       value={setting.sound}
-                      aria-label={`Sonido para: ${event.label}`}
-                      onChange={(e) => {
-                        const s = setEvent(event.key, { sound: e.target.value as SoundId });
+                      onValueChange={(value) => {
+                        const s = setEvent(event.key, { sound: value as SoundId });
                         preview(s.sound, s.volume);
                       }}
-                      className="min-w-0 flex-1 rounded-lg border border-border/60 bg-background px-2 py-1.5 text-sm"
                     >
-                      <option value="ninguno">Sin sonido</option>
-                      {custom && <option value="personalizado">Mi sonido: {custom.name}</option>}
-                      {SOUND_GROUPS.map((group) => (
-                        <optgroup key={group} label={group}>
-                          {SOUNDS.filter((s) => s.group === group).map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {s.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
+                      <SelectTrigger className="h-9 min-w-0 flex-1 px-3" aria-label={`Sonido para: ${event.label}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ninguno">Sin sonido</SelectItem>
+                        {custom && <SelectItem value="personalizado">Mi sonido: {custom.name}</SelectItem>}
+                        {SOUND_GROUPS.map((group) => (
+                          <SelectGroup key={group}>
+                            <SelectSeparator />
+                            <SelectLabel className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group}</SelectLabel>
+                            {SOUNDS.filter((s) => s.group === group).map((s) => (
+                              <SelectItem key={s.id} value={s.id}>
+                                {s.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <Button
                       variant="outline"
                       size="icon"
