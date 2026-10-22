@@ -156,6 +156,15 @@ function openCompose(mailto: string | null): void {
   }
 }
 
+/** Abre una sección de la app (p. ej. /archivos) en la ventana. */
+function openRoute(route: string): void {
+  showWindow();
+  const contents = win?.webContents;
+  if (!contents) return;
+  if (isAppUrl(contents.getURL(), APP_ORIGIN) && !contents.isLoading()) contents.send("rud1:navigate", route);
+  else void contents.loadURL(`${APP_ORIGIN}${route}`);
+}
+
 function showOffline(): void {
   void win?.loadFile(OFFLINE_FILE, { query: { url: APP_ORIGIN } });
 }
@@ -374,6 +383,7 @@ function rebuildTrayMenu(): void {
     Menu.buildFromTemplate([
       { label: "Abrir rud1 Mail", click: showWindow },
       { label: "Redactar", click: () => openCompose(null) },
+      { label: "Archivos", click: () => openRoute("/archivos") },
       { type: "separator" },
       {
         label: "Usar para los enlaces de correo (mailto:)",
@@ -417,6 +427,7 @@ function buildMenu(): void {
       label: "Archivo",
       submenu: [
         { label: "Redactar", accelerator: "CmdOrCtrl+N", click: () => openCompose(null) },
+        { label: "Archivos", accelerator: "CmdOrCtrl+Shift+A", click: () => openRoute("/archivos") },
         { type: "separator" },
         isMac ? { role: "close", label: "Cerrar la ventana" } : { label: "Salir", accelerator: "Ctrl+Q", click: () => { quitting = true; app.quit(); } },
       ],

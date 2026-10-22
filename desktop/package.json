@@ -1,6 +1,6 @@
 {
   "name": "rud1-mail-desktop",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "rud1 Mail",
   "main": "dist/main.js",
   "author": "rud1 <noreply@rud1.es>",
