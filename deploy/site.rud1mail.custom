@@ -43,6 +43,10 @@ location ^~ /ajustes {
 location ^~ /_next/ {
     include /etc/nginx/conf.d/rud1mail.proxy;
 }
+# Agenda (la de admin.rud1.es, vista desde el correo).
+location ^~ /agenda {
+    include /etc/nginx/conf.d/rud1mail.proxy;
+}
 # Archivos compartidos y los enlaces para gente de fuera (/f/…).
 location ^~ /archivos {
     include /etc/nginx/conf.d/rud1mail.proxy;
@@ -71,7 +75,7 @@ location ^~ /marca/ {
     include /etc/nginx/conf.d/rud1mail.proxy;
 }
 # API propia de rud1 Mail (la de Mailcow es /api/v1 y sigue siendo suya).
-location ~ ^/api/(adjunto|estado|contactos|avatar|imagen|sonido)(/|$) {
+location ~ ^/api/(adjunto|estado|contactos|avatar|imagen|sonido|agenda)(/|$) {
     include /etc/nginx/conf.d/rud1mail.proxy;
 }
 # Canal en tiempo real: conexión larga y sin retener los eventos.
