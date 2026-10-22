@@ -113,6 +113,11 @@ if [ "$RESTART_MAILCOW" = 1 ]; then
 fi
 
 # 4. El cortafuegos de Mailcow nunca bloquea a rud1 Mail.
+# Si Mailcow se acaba de reiniciar, su API tarda un poco en responder.
+for i in $(seq 1 60); do
+  mc-api GET get/fail2ban 2>/dev/null | jq -e . >/dev/null 2>&1 && break
+  sleep 3
+done
 for APP_IP in $APP_IPS; do
   WL=$(mc-api GET get/fail2ban | jq -r '.whitelist // ""')
   if ! printf '%s' "$WL" | grep -q "$APP_IP"; then
