@@ -1,0 +1,4 @@
+# Lo que se ejecuta o se lee en el servidor (Linux) va siempre con saltos LF.
+*.sh text eol=lf
+deploy/* text eol=lf
+Dockerfile text eol=lf
