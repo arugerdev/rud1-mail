@@ -16,7 +16,7 @@ import {
 import { Composer } from "./composer";
 
 export type ComposeRequest =
-  | { mode: "new"; to?: string }
+  | { mode: "new"; to?: string; cc?: string; bcc?: string; subject?: string; text?: string }
   | { mode: "reply" | "replyAll" | "forward"; source: MessageDetail }
   | { mode: "draft"; draft: DraftContent };
 
@@ -79,7 +79,16 @@ function stateFor(request: ComposeRequest, userEmail: string): ComposeState {
   };
 
   if (request.mode === "new") {
-    return { ...base, mode: "new", title: "Mensaje nuevo", to: request.to ?? "", subject: "", text: "" };
+    return {
+      ...base,
+      mode: "new",
+      title: "Mensaje nuevo",
+      to: request.to ?? "",
+      cc: request.cc ?? "",
+      bcc: request.bcc ?? "",
+      subject: request.subject ?? "",
+      text: request.text ?? "",
+    };
   }
 
   if (request.mode === "draft") {

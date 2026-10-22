@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sin conexión · rud1 Mail</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <style>
+    :root { color-scheme: dark light; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex; align-items: center; justify-content: center; padding: 24px;
+      background: radial-gradient(circle at 30% 20%, #16233d, #0a0e17 60%);
+      color: #e5e9f0; font: 15px/1.5 Inter, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    @media (prefers-color-scheme: light) {
+      body { background: radial-gradient(circle at 30% 20%, #e6efff, #f4f6fa 60%); color: #1f2937; }
+      .card { background: rgba(255,255,255,.75); border-color: rgba(15,23,42,.08); }
+      p { color: #4b5563; }
+    }
+    .card {
+      max-width: 380px; width: 100%; text-align: center; padding: 32px 28px; border-radius: 24px;
+      background: rgba(22,30,46,.7); border: 1px solid rgba(255,255,255,.08);
+      box-shadow: 0 18px 48px rgba(0,0,0,.25); backdrop-filter: blur(24px);
+    }
+    img { width: 64px; height: 64px; }
+    h1 { font-size: 20px; margin: 16px 0 6px; }
+    p { margin: 0 0 20px; color: #9aa4b2; }
+    button {
+      font: inherit; font-weight: 600; border: 0; border-radius: 12px; padding: 10px 20px; cursor: pointer;
+      background: #3d99f5; color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <img src="/icon.svg" alt="">
+    <h1>Sin conexión</h1>
+    <p>rud1 Mail necesita internet para traer tu correo. En cuanto vuelva la conexión, todo estará donde lo dejaste.</p>
+    <button type="button" onclick="location.reload()">Reintentar</button>
+  </main>
+  <script>window.addEventListener("online", () => location.reload());</script>
+</body>
+</html>

@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/shared/providers/theme-provider";
 import { Toaster } from "@/shared/components/ui/toaster";
 import { cn } from "@/lib/utils";
 
+import { PwaProvider } from "./pwa";
 import "./globals.css";
 
 const fontSans = Inter({
@@ -27,12 +28,14 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
-      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/icon.svg", type: "image/svg+xml" },
       { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
-      { url: "/favicon-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
     ],
     apple: "/apple-touch-icon.png",
   },
+  // iPhone y iPad: al añadirla a la pantalla de inicio se abre como app, sin barras de Safari.
+  appleWebApp: { capable: true, title: "rud1 Mail", statusBarStyle: "black-translucent" },
 };
 
 export const viewport: Viewport = {
@@ -50,7 +53,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="es" suppressHydrationWarning>
       <body className={cn("min-h-screen bg-background font-sans antialiased", fontSans.variable, fontMono.variable)}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
-          {children}
+          <PwaProvider>{children}</PwaProvider>
           <Toaster />
         </ThemeProvider>
       </body>

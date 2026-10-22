@@ -108,6 +108,33 @@ export async function listMessages(
   });
 }
 
+export interface InboxState {
+  unread: number;
+  latest: { uid: number; from: string; subject: string } | null;
+}
+
+/** Lo justo para saber si ha llegado algo: sin leer y el último mensaje. */
+export async function inboxState(credentials: Credentials): Promise<InboxState> {
+  return withMailbox(credentials, "INBOX", async (client) => {
+    await client.noop();
+    const status = await client.status("INBOX", { unseen: true });
+    const exists = client.mailbox ? client.mailbox.exists : 0;
+    if (exists === 0) return { unread: status.unseen ?? 0, latest: null };
+    const last = await client.fetchOne("*", { uid: true, envelope: true });
+    const from = last && last.envelope?.from?.[0];
+    return {
+      unread: status.unseen ?? 0,
+      latest: last
+        ? {
+            uid: last.uid,
+            from: from ? from.name || from.address || "" : "",
+            subject: last.envelope?.subject?.trim() || "(sin asunto)",
+          }
+        : null,
+    };
+  });
+}
+
 export interface AttachmentInfo {
   index: number;
   filename: string;

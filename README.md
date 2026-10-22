@@ -24,6 +24,29 @@ Plan completo y fases: `PLAN_CORREO.md` en la carpeta del proyecto rud1.
 
 Pendiente: buzones comunes (fase 3) y administración (fase 4).
 
+## App instalable
+
+rud1 Mail es una PWA: se instala desde el propio navegador, sin tiendas.
+
+| Sistema | Cómo se instala |
+|---|---|
+| Windows, macOS, Linux, ChromeOS | Chrome o Edge: botón **Instalar** arriba (o el icono de instalar de la barra de direcciones). Queda en el menú Inicio / Launchpad / Dock con su propia ventana. |
+| Android | Chrome: **Instalar** (o menú ⋮ → Instalar aplicación). |
+| iPhone / iPad | Safari: **Compartir → Añadir a pantalla de inicio** (la app lo explica desde el menú de la cuenta). |
+
+Con la app instalada:
+- Contador de correos sin leer en el icono (barra de tareas, Dock; no en Firefox).
+- Avisos de correo nuevo mientras la app está abierta, aunque esté en segundo
+  plano (se activan desde el menú de la cuenta).
+- Accesos directos al pulsar el icono con el botón derecho: Redactar y Bandeja.
+- Puede ser la app de correo predeterminada para los enlaces `mailto:`
+  (Windows: Configuración → Aplicaciones → Aplicaciones predeterminadas).
+- Sin conexión enseña una página propia. El correo **no** se guarda en el
+  dispositivo: solo el código y los iconos de la app.
+
+Los iconos salen de `public/favicon.svg` con `node scripts/generate-icons.mjs`.
+La instalación necesita HTTPS: funciona en `mail.rud1.es` y en `localhost`.
+
 ## Desarrollo
 
 ```bash

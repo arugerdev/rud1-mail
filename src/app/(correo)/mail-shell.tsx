@@ -5,6 +5,9 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Archive,
+  Bell,
+  BellOff,
+  Download,
   FileText,
   Folder as FolderIcon,
   Inbox,
@@ -15,6 +18,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  Share,
   ShieldAlert,
   Trash2,
   X,
@@ -37,10 +41,20 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
 import { Input } from "@/shared/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/components/ui/dialog";
 import { UserAvatar } from "@/shared/components/ui/user-avatar";
 import { useSpring } from "@/shared/hooks/use-spring";
 
+import { setAppBadge, usePwa } from "../pwa";
 import { useCompose } from "./compose/compose-provider";
+import { useMailWatcher, useNotificationPermission } from "./mail-watcher";
+import { parseMailto } from "./mailto";
 import { mailHref } from "./nav";
 
 const FOLDER_ICONS: Record<SpecialUse, LucideIcon> = {
@@ -109,8 +123,40 @@ function FolderNav({ folders, current }: { folders: Folder[]; current: string })
   );
 }
 
-function AccountMenu({ user }: { user: ShellUser }) {
+/** En iPhone y iPad no hay botón de instalar: se explica cómo hacerlo desde Safari. */
+function IosInstallDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Instalar rud1 Mail</DialogTitle>
+          <DialogDescription>En el iPhone o el iPad, desde Safari:</DialogDescription>
+        </DialogHeader>
+        <ol className="list-decimal space-y-2 pl-5 text-sm">
+          <li>
+            Pulsa <Share className="inline size-4 align-text-bottom" /> <strong>Compartir</strong>, abajo en la pantalla.
+          </li>
+          <li>
+            Elige <strong>Añadir a pantalla de inicio</strong>.
+          </li>
+          <li>
+            Pulsa <strong>Añadir</strong>. rud1 Mail aparecerá como una app más.
+          </li>
+        </ol>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AccountMenu({ user }: { user: ShellUser }) {
+  const pwa = usePwa();
+  const [notifications, requestNotifications] = useNotificationPermission();
+  const [iosHelp, setIosHelp] = React.useState(false);
+  const showIosHelp = pwa.isIos && !pwa.standalone;
+
+  return (
+    <>
+    <IosInstallDialog open={iosHelp} onOpenChange={setIosHelp} />
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="h-auto w-full justify-start gap-3 px-2 py-2">
@@ -124,6 +170,26 @@ function AccountMenu({ user }: { user: ShellUser }) {
       <DropdownMenuContent align="start" side="top" className="w-60">
         <DropdownMenuLabel className="truncate">{user.email}</DropdownMenuLabel>
         <DropdownMenuSeparator />
+        {pwa.canInstall && (
+          <DropdownMenuItem onClick={() => void pwa.install()}>
+            <Download className="size-4" /> Instalar la app
+          </DropdownMenuItem>
+        )}
+        {showIosHelp && (
+          <DropdownMenuItem onClick={() => setIosHelp(true)}>
+            <Download className="size-4" /> Instalar en el iPhone o iPad
+          </DropdownMenuItem>
+        )}
+        {notifications === "default" && (
+          <DropdownMenuItem onClick={() => void requestNotifications()}>
+            <Bell className="size-4" /> Avisarme del correo nuevo
+          </DropdownMenuItem>
+        )}
+        {notifications === "denied" && (
+          <DropdownMenuItem disabled>
+            <BellOff className="size-4" /> Avisos bloqueados en el navegador
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem asChild>
           <Link href="/cambiar-contrasena">
             <KeyRound className="size-4" /> Cambiar la contraseña
@@ -134,7 +200,47 @@ function AccountMenu({ user }: { user: ShellUser }) {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    </>
   );
+}
+
+/** Botón visible para instalar, mientras no se haya instalado. */
+function InstallButton() {
+  const pwa = usePwa();
+  if (!pwa.canInstall) return null;
+  return (
+    <Button variant="ghost" size="sm" className="gap-1.5 px-2.5" onClick={() => void pwa.install()} title="Instalar rud1 Mail como app">
+      <Download className="size-4" />
+      <span className="hidden sm:inline">Instalar</span>
+    </Button>
+  );
+}
+
+/**
+ * Abre el redactor cuando la app se lanza con "Redactar" (acceso directo del
+ * icono) o desde un enlace mailto: del sistema, y limpia la dirección.
+ */
+function useComposeFromUrl() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const compose = useCompose();
+  const handled = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    const mailto = params.get("mailto");
+    const redactar = params.get("redactar");
+    if (!mailto && !redactar) return;
+    const key = `${mailto}|${redactar}`;
+    if (handled.current === key) return;
+    handled.current = key;
+    const fields = mailto ? parseMailto(mailto) : null;
+    compose.open(fields ? { mode: "new", ...fields } : { mode: "new" });
+    const rest = new URLSearchParams(params);
+    rest.delete("mailto");
+    rest.delete("redactar");
+    const qs = rest.toString();
+    router.replace(qs ? `/?${qs}` : "/");
+  }, [params, router, compose]);
 }
 
 function SidebarBody({ user, folders, current }: { user: ShellUser; folders: Folder[]; current: string }) {
@@ -213,21 +319,6 @@ function SearchBox({ folder, folderName }: { folder: string; folderName: string 
   );
 }
 
-/** Pide al servidor la bandeja de nuevo cada minuto y al volver a la pestaña. */
-function useAutoRefresh(onRefresh: () => void) {
-  React.useEffect(() => {
-    const tick = () => {
-      if (document.visibilityState === "visible") onRefresh();
-    };
-    const timer = window.setInterval(tick, 60_000);
-    window.addEventListener("focus", tick);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", tick);
-    };
-  }, [onRefresh]);
-}
-
 export function MailShell({
   user,
   folders,
@@ -248,12 +339,14 @@ export function MailShell({
   React.useEffect(() => setOpen(false), [pathname, current]);
 
   const refresh = React.useCallback(() => startRefresh(() => router.refresh()), [router]);
-  useAutoRefresh(refresh);
+  useMailWatcher();
+  useComposeFromUrl();
 
   const inbox = folders.find((f) => f.specialUse === "inbox");
   React.useEffect(() => {
     const unread = inbox?.unread ?? 0;
     document.title = unread > 0 ? `(${unread}) ${folderName} · rud1 Mail` : `${folderName} · rud1 Mail`;
+    setAppBadge(unread);
   }, [inbox?.unread, folderName]);
 
   const body = <SidebarBody user={user} folders={folders} current={current} />;
@@ -275,6 +368,7 @@ export function MailShell({
           </Button>
           <SearchBox folder={current} folderName={folderName} />
           <div className="ml-auto flex items-center gap-1">
+            <InstallButton />
             <Button variant="ghost" size="icon" aria-label="Actualizar" title="Actualizar" onClick={refresh}>
               <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
             </Button>
