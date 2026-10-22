@@ -35,12 +35,19 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/shared/components/ui/button";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 
+import { Avatar } from "./avatar";
 import { useCompose } from "./compose/compose-provider";
 import { mailHref, shortDate } from "./nav";
 
 function displayName(a: { name: string; address: string } | null | undefined): string {
   if (!a) return "(sin remitente)";
   return a.name || a.address;
+}
+
+/** Dirección cuya foto se enseña en la fila: el destinatario en Enviados y Borradores. */
+function counterpartAddress(msg: MessageSummary, specialUse: SpecialUse | null): string | null {
+  if (specialUse === "sent" || specialUse === "drafts") return msg.to[0]?.address ?? null;
+  return msg.from?.address ?? null;
 }
 
 /** En Enviados y Borradores interesa a quién va, no quién lo manda. */
@@ -179,7 +186,13 @@ function Row({
   active,
   checked,
   onCheck,
+  isNew,
+  index,
+  compact,
 }: {
+  compact: boolean;
+  isNew: boolean;
+  index: number;
   msg: MessageSummary;
   folder: string;
   specialUse: SpecialUse | null;
@@ -210,10 +223,14 @@ function Row({
   return (
     <li
       className={cn(
-        "group relative flex items-start gap-3 border-b border-border/30 px-3 py-2.5 transition-colors",
+        "rud1-in group relative flex items-start gap-3 border-b border-border/30 px-3 transition-colors",
+        compact ? "py-1.5" : "py-2.5",
         active ? "bg-primary-soft/30" : "hover:bg-surface-1/60",
         checked && !active && "bg-surface-2/50",
+        isNew && "rud1-new",
       )}
+      // Entrada escalonada, solo las primeras filas (las demás ya están fuera de la vista).
+      style={{ animationDelay: index < 14 ? `${index * 18}ms` : undefined }}
     >
       {/* Por encima del enlace de la fila, que ocupa toda la fila. */}
       <div className="relative z-10 flex flex-col items-center gap-2 pt-0.5">
@@ -240,8 +257,15 @@ function Row({
         className="min-w-0 flex-1 focus-visible:outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring"
         scroll={false}
       >
-        <div className="flex items-baseline gap-2">
-          {unread && <span className="size-2 shrink-0 translate-y-[-1px] rounded-full bg-primary" aria-label="Sin leer" />}
+        <div className="flex items-center gap-2">
+          {unread && <span className="size-2 shrink-0 rounded-full bg-primary" aria-label="Sin leer" />}
+          {counterpartAddress(msg, specialUse) && (
+            <Avatar
+              email={counterpartAddress(msg, specialUse)!}
+              name={counterpart(msg, specialUse).replace(/^Para: /, "")}
+              className="size-6 text-[9px]"
+            />
+          )}
           <span className={cn("min-w-0 flex-1 truncate text-sm", unread ? "font-semibold text-foreground" : "text-foreground/80")}>
             {isDraft && <span className="mr-1 text-destructive">Borrador</span>}
             {counterpart(msg, specialUse)}
@@ -268,7 +292,9 @@ export function MessageList({
   list,
   query,
   selectedUid,
+  compact = false,
 }: {
+  compact?: boolean;
   folder: string;
   folderName: string;
   specialUse: SpecialUse | null;
@@ -282,6 +308,14 @@ export function MessageList({
   React.useEffect(() => setSelected([]), [folder, list.page, query]);
 
   const uids = list.items.map((m) => m.uid);
+
+  // Los que llegan con la bandeja abierta se iluminan un momento.
+  const maxSeen = React.useRef<{ key: string; uid: number } | null>(null);
+  const listKey = `${folder}|${query}|${list.page}`;
+  const previousMax = maxSeen.current?.key === listKey ? maxSeen.current.uid : Infinity;
+  React.useEffect(() => {
+    maxSeen.current = { key: listKey, uid: Math.max(0, ...uids) };
+  });
   const allChecked = selected.length > 0 && selected.length === uids.length;
   const someChecked = selected.length > 0 && !allChecked;
   const allSeen = list.items.filter((m) => selected.includes(m.uid)).every((m) => m.seen);
@@ -373,7 +407,7 @@ export function MessageList({
         </div>
       ) : (
         <ul className="min-h-0 flex-1 overflow-y-auto">
-          {list.items.map((msg) => (
+          {list.items.map((msg, i) => (
             <Row
               key={msg.uid}
               msg={msg}
@@ -382,6 +416,9 @@ export function MessageList({
               page={list.page}
               query={query}
               active={msg.uid === selectedUid}
+              isNew={msg.uid > previousMax}
+              compact={compact}
+              index={i}
               checked={selected.includes(msg.uid)}
               onCheck={(checked) =>
                 setSelected((prev) => (checked ? [...prev, msg.uid] : prev.filter((u) => u !== msg.uid)))

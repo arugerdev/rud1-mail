@@ -1,7 +1,13 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 
+import { config } from "@/lib/config";
+import { learnContacts } from "@/lib/contacts";
+import { deleteDraftData, getDraftData, saveDraftData, type DraftData, type DraftRecipient } from "@/lib/drafts";
+import { sanitizeAuthoredHtml } from "@/lib/mail/authoring";
+import { composeMessage, type ComposeMode } from "@/lib/mail/compose";
 import {
   deleteForever,
   getAllAttachments,
@@ -10,9 +16,18 @@ import {
   moveToSpecial,
   setFlag,
 } from "@/lib/mail/messages";
-import { deleteDraft, markAnswered, saveDraft, sendMessage, SendError, type OutgoingMessage } from "@/lib/mail/send";
-import { isValidEmail, parseAddressList, type AddressLike } from "@/lib/mail/text";
-import { requireUser } from "@/lib/session";
+import { wrap } from "@/lib/mail/render";
+import {
+  deleteDraft,
+  markAnswered,
+  saveDraft,
+  sendMessage,
+  SendError,
+  type OutgoingAttachment,
+  type OutgoingMessage,
+} from "@/lib/mail/send";
+import { escapeHtml, isValidEmail } from "@/lib/mail/text";
+import { requireUser, type SignedInSession } from "@/lib/session";
 
 export interface ActionResult {
   ok: boolean;
@@ -90,21 +105,32 @@ export async function deleteForeverAction(folder: string, uids: number[]): Promi
 /** 25 MB entre todos los adjuntos: lo que aceptan la mayoría de servidores. */
 const MAX_ATTACHMENTS_BYTES = 25 * 1024 * 1024;
 
-function addresses(formData: FormData, field: string): AddressLike[] {
-  return parseAddressList(String(formData.get(field) ?? ""));
+const MODES: ComposeMode[] = ["new", "reply", "replyAll", "forward"];
+
+function recipients(formData: FormData, field: string): DraftRecipient[] {
+  try {
+    const raw = JSON.parse(String(formData.get(field) ?? "[]"));
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((r): r is DraftRecipient => typeof r?.address === "string")
+      .map((r) => ({ address: r.address.trim(), name: typeof r.name === "string" ? r.name.trim() : undefined }))
+      .slice(0, 100);
+  } catch {
+    return [];
+  }
 }
 
-interface Composed {
-  message: OutgoingMessage;
-  source: { folder: string; uid: number } | null;
-  mode: string;
+interface ComposeForm {
+  draft: DraftData;
+  attachments: OutgoingAttachment[];
   draftUid: number | null;
+  draftMessageId: string | null;
 }
 
-async function readComposeForm(formData: FormData, name: string): Promise<Composed | string> {
-  const to = addresses(formData, "to");
-  const cc = addresses(formData, "cc");
-  const bcc = addresses(formData, "bcc");
+async function readComposeForm(formData: FormData): Promise<ComposeForm | string> {
+  const to = recipients(formData, "to");
+  const cc = recipients(formData, "cc");
+  const bcc = recipients(formData, "bcc");
   const invalid = [...to, ...cc, ...bcc].find((a) => !isValidEmail(a.address));
   if (invalid) return `"${invalid.address}" no es una dirección válida.`;
 
@@ -117,11 +143,10 @@ async function readComposeForm(formData: FormData, name: string): Promise<Compos
     })),
   );
 
-  const mode = String(formData.get("mode") ?? "new");
+  const modeRaw = String(formData.get("mode") ?? "new") as ComposeMode;
+  const mode = MODES.includes(modeRaw) ? modeRaw : "new";
   const sourceFolder = String(formData.get("sourceFolder") ?? "");
   const sourceUid = Number(formData.get("sourceUid") ?? 0);
-  const source = sourceFolder && sourceUid > 0 ? { folder: sourceFolder, uid: sourceUid } : null;
-  const draftUid = Number(formData.get("draftUid") ?? 0) || null;
 
   let references: string[] = [];
   try {
@@ -132,37 +157,67 @@ async function readComposeForm(formData: FormData, name: string): Promise<Compos
   }
 
   return {
-    message: {
-      fromName: name,
+    draft: {
       to,
       cc,
       bcc,
       subject: String(formData.get("subject") ?? "").slice(0, 500),
-      text: String(formData.get("text") ?? ""),
-      attachments,
+      bodyHtml: String(formData.get("bodyHtml") ?? "").slice(0, 2_000_000),
+      mode,
+      source: sourceFolder && sourceUid > 0 ? { folder: sourceFolder, uid: sourceUid } : null,
+      includeQuote: formData.get("includeQuote") === "1",
+      keepAttachments: formData.get("keepAttachments") === "1",
       inReplyTo: String(formData.get("inReplyTo") ?? "") || null,
       references,
     },
-    source,
-    mode,
-    draftUid,
+    attachments,
+    draftUid: Number(formData.get("draftUid") ?? 0) || null,
+    draftMessageId: String(formData.get("draftMessageId") ?? "") || null,
+  };
+}
+
+async function buildOutgoing(
+  user: SignedInSession,
+  form: ComposeForm,
+  messageId?: string,
+): Promise<OutgoingMessage> {
+  const { draft } = form;
+  const { html, text } = await composeMessage(user, {
+    bodyHtml: draft.bodyHtml,
+    mode: draft.mode,
+    source: draft.source,
+    includeQuote: draft.includeQuote,
+  });
+  return {
+    fromName: user.name,
+    to: draft.to,
+    cc: draft.cc,
+    bcc: draft.bcc,
+    subject: draft.subject,
+    html,
+    text,
+    attachments: form.attachments,
+    inReplyTo: draft.inReplyTo,
+    references: draft.references,
+    ...(messageId ? { messageId } : {}),
   };
 }
 
 export async function sendAction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  const composed = await readComposeForm(formData, user.name);
-  if (typeof composed === "string") return { ok: false, error: composed };
-  const { message, source, mode, draftUid } = composed;
+  const form = await readComposeForm(formData);
+  if (typeof form === "string") return { ok: false, error: form };
+  const { draft } = form;
 
-  if (message.to.length + message.cc.length + message.bcc.length === 0) {
+  if (draft.to.length + draft.cc.length + draft.bcc.length === 0) {
     return { ok: false, error: "Añade al menos un destinatario." };
   }
 
   try {
+    const message = await buildOutgoing(user, form);
     // Al reenviar, los adjuntos del original viajan con el mensaje.
-    if (mode === "forward" && source && formData.get("keepAttachments") === "1") {
-      message.attachments.unshift(...(await getAllAttachments(user, source.folder, source.uid)));
+    if (draft.mode === "forward" && draft.source && draft.keepAttachments) {
+      message.attachments.unshift(...(await getAllAttachments(user, draft.source.folder, draft.source.uid)));
     }
     const total = message.attachments.reduce((sum, a) => sum + a.content.length, 0);
     if (total > MAX_ATTACHMENTS_BYTES) {
@@ -170,65 +225,94 @@ export async function sendAction(formData: FormData): Promise<ActionResult> {
     }
 
     await sendMessage(user, message);
-    if ((mode === "reply" || mode === "replyAll") && source) {
-      await markAnswered(user, source.folder, source.uid).catch(() => undefined);
+    learnContacts(user.email, [...draft.to, ...draft.cc, ...draft.bcc]);
+    if ((draft.mode === "reply" || draft.mode === "replyAll") && draft.source) {
+      await markAnswered(user, draft.source.folder, draft.source.uid).catch(() => undefined);
     }
-    if (draftUid) await deleteDraft(user, draftUid).catch(() => undefined);
+    if (form.draftUid) await deleteDraft(user, form.draftUid).catch(() => undefined);
+    if (form.draftMessageId) deleteDraftData(user.email, form.draftMessageId);
     return ok();
   } catch (error) {
     return fail(error, "No se pudo enviar el mensaje. Revisa los destinatarios e inténtalo de nuevo.");
   }
 }
 
-export async function saveDraftAction(formData: FormData): Promise<ActionResult & { uid?: number | null }> {
+export async function saveDraftAction(
+  formData: FormData,
+): Promise<ActionResult & { uid?: number | null; messageId?: string }> {
   const user = await requireUser();
-  const composed = await readComposeForm(formData, user.name);
-  if (typeof composed === "string") return { ok: false, error: composed };
+  const form = await readComposeForm(formData);
+  if (typeof form === "string") return { ok: false, error: form };
   try {
-    const { uid } = await saveDraft(user, composed.message, composed.draftUid);
+    // Mismo Message-ID en cada guardado: así se reencuentran sus datos al reabrirlo.
+    const messageId = form.draftMessageId ?? `<${randomUUID()}@${config.domain}>`;
+    const message = await buildOutgoing(user, form, messageId);
+    const { uid } = await saveDraft(user, message, form.draftUid);
+    saveDraftData(user.email, messageId, form.draft);
     revalidatePath("/", "layout");
-    return { ok: true, uid };
+    return { ok: true, uid, messageId };
   } catch (error) {
     return fail(error, "No se pudo guardar el borrador.");
   }
 }
 
-export async function discardDraftAction(uid: number): Promise<ActionResult> {
+export async function discardDraftAction(uid: number, messageId?: string | null): Promise<ActionResult> {
   const user = await requireUser();
   try {
     await deleteDraft(user, uid);
+    if (messageId) deleteDraftData(user.email, messageId);
     return ok();
   } catch (error) {
     return fail(error, "No se pudo descartar el borrador.");
   }
 }
 
-export interface DraftContent {
+export interface DraftContent extends DraftData {
   uid: number;
-  to: string;
-  cc: string;
-  bcc: string;
-  subject: string;
-  text: string;
-  inReplyTo: string | null;
-  references: string[];
+  messageId: string | null;
 }
 
-/** Abre un borrador guardado en el redactor. */
+/** Abre un borrador guardado en el redactor, tal cual se dejó. */
 export async function loadDraftAction(folder: string, uid: number): Promise<DraftContent | null> {
   const user = await requireUser();
   const detail = await getMessage(user, folder, uid, { markSeen: false });
   if (!detail) return null;
-  const list = (items: { name: string; address: string }[]) =>
-    items.map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(", ");
+  const saved = detail.messageId ? getDraftData(user.email, detail.messageId) : null;
+  if (saved) return { ...saved, uid, messageId: detail.messageId };
+  // Borrador hecho en otro programa: se abre con lo que trae.
+  const toRecipients = (list: { name: string; address: string }[]) => list.map((a) => ({ address: a.address, name: a.name }));
   return {
     uid,
-    to: list(detail.to),
-    cc: list(detail.cc),
-    bcc: list(detail.bcc),
+    messageId: detail.messageId,
+    to: toRecipients(detail.to),
+    cc: toRecipients(detail.cc),
+    bcc: toRecipients(detail.bcc),
     subject: detail.subject,
-    text: detail.text,
+    bodyHtml: detail.html ? sanitizeAuthoredHtml(detail.html) : `<p>${escapeHtml(detail.text).replace(/\n/g, "<br>")}</p>`,
+    mode: "new",
+    source: null,
+    includeQuote: false,
+    keepAttachments: false,
     inReplyTo: detail.inReplyTo,
     references: detail.references,
   };
+}
+
+/** Vista previa: el mensaje exactamente como lo recibirá el destinatario. */
+export async function previewAction(formData: FormData): Promise<{ ok: boolean; document?: string; error?: string }> {
+  const user = await requireUser();
+  const form = await readComposeForm(formData);
+  if (typeof form === "string") return { ok: false, error: form };
+  try {
+    const { html } = await composeMessage(user, {
+      bodyHtml: form.draft.bodyHtml,
+      mode: form.draft.mode,
+      source: form.draft.source,
+      includeQuote: form.draft.includeQuote,
+    });
+    return { ok: true, document: wrap(html, true) };
+  } catch (error) {
+    console.error("[vista previa]", error);
+    return { ok: false, error: "No se pudo preparar la vista previa." };
+  }
 }

@@ -4,38 +4,40 @@ import * as React from "react";
 
 import type { DraftContent } from "@/app/actions/mail";
 import type { MessageDetail } from "@/lib/mail/messages";
-import {
-  formatAddress,
-  forwardSubject,
-  quoteForForward,
-  quoteForReply,
-  replySubject,
-  type AddressLike,
-} from "@/lib/mail/text";
+import { forwardSubject, replySubject } from "@/lib/mail/text";
 
 import { Composer } from "./composer";
+import type { Recipient } from "./recipient-input";
 
 export type ComposeRequest =
   | { mode: "new"; to?: string; cc?: string; bcc?: string; subject?: string; text?: string }
   | { mode: "reply" | "replyAll" | "forward"; source: MessageDetail }
   | { mode: "draft"; draft: DraftContent };
 
+export type ComposeMode = "new" | "reply" | "replyAll" | "forward";
+
 export interface ComposeState {
   /** Cambia en cada apertura para que el redactor empiece de cero. */
   key: number;
-  mode: "new" | "reply" | "replyAll" | "forward" | "draft";
+  /** Con qué se monta el mensaje (cita, cabecera…). Un borrador conserva el suyo. */
+  mode: ComposeMode;
   title: string;
-  to: string;
-  cc: string;
-  bcc: string;
+  to: Recipient[];
+  cc: Recipient[];
+  bcc: Recipient[];
   subject: string;
-  text: string;
+  bodyHtml: string;
   inReplyTo: string | null;
   references: string[];
   source: { folder: string; uid: number } | null;
+  /** Resumen del mensaje al que se responde o que se reenvía. */
+  quoteSummary: string | null;
+  includeQuote: boolean;
   /** Adjuntos del original que se pueden reenviar. */
   forwardAttachments: number;
+  keepAttachments: boolean;
   draftUid: number | null;
+  draftMessageId: string | null;
 }
 
 interface ComposeContextValue {
@@ -50,18 +52,39 @@ export function useCompose(): ComposeContextValue {
   return ctx;
 }
 
-function list(addresses: AddressLike[]): string {
-  return addresses.map(formatAddress).join(", ");
-}
-
-function uniqueExcept(addresses: AddressLike[], exclude: string[]): AddressLike[] {
+function uniqueExcept(list: Recipient[], exclude: string[]): Recipient[] {
   const seen = new Set(exclude.map((e) => e.toLowerCase()));
-  return addresses.filter((a) => {
-    const key = a.address.toLowerCase();
+  return list.filter((r) => {
+    const key = r.address.toLowerCase();
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+}
+
+function fromList(raw: string | undefined): Recipient[] {
+  return (raw ?? "")
+    .split(/[,;]+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => {
+      const m = p.match(/^(.*)<\s*([^>]+)\s*>$/);
+      return m ? { name: m[1].trim().replace(/^"|"$/g, ""), address: m[2].trim() } : { address: p };
+    });
+}
+
+function textToParagraphs(text: string): string {
+  if (!text) return "";
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return text
+    .split(/\n{2,}/)
+    .map((block) => `<p>${esc(block).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
+function shortDate(iso: string | null): string {
+  if (!iso) return "";
+  return new Intl.DateTimeFormat("es-ES", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Madrid" }).format(new Date(iso));
 }
 
 let counter = 0;
@@ -69,13 +92,20 @@ let counter = 0;
 function stateFor(request: ComposeRequest, userEmail: string): ComposeState {
   const base = {
     key: ++counter,
-    cc: "",
-    bcc: "",
+    to: [] as Recipient[],
+    cc: [] as Recipient[],
+    bcc: [] as Recipient[],
+    subject: "",
+    bodyHtml: "",
     inReplyTo: null,
     references: [] as string[],
     source: null,
+    quoteSummary: null,
+    includeQuote: true,
     forwardAttachments: 0,
+    keepAttachments: false,
     draftUid: null,
+    draftMessageId: null,
   };
 
   if (request.mode === "new") {
@@ -83,11 +113,11 @@ function stateFor(request: ComposeRequest, userEmail: string): ComposeState {
       ...base,
       mode: "new",
       title: "Mensaje nuevo",
-      to: request.to ?? "",
-      cc: request.cc ?? "",
-      bcc: request.bcc ?? "",
+      to: fromList(request.to),
+      cc: fromList(request.cc),
+      bcc: fromList(request.bcc),
       subject: request.subject ?? "",
-      text: request.text ?? "",
+      bodyHtml: textToParagraphs(request.text ?? ""),
     };
   }
 
@@ -95,20 +125,27 @@ function stateFor(request: ComposeRequest, userEmail: string): ComposeState {
     const d = request.draft;
     return {
       ...base,
-      mode: "draft",
+      mode: d.mode,
       title: "Borrador",
       to: d.to,
       cc: d.cc,
       bcc: d.bcc,
       subject: d.subject,
-      text: d.text,
+      bodyHtml: d.bodyHtml,
       inReplyTo: d.inReplyTo,
       references: d.references,
+      source: d.source,
+      quoteSummary: d.source ? "Mensaje original" : null,
+      includeQuote: d.includeQuote,
+      keepAttachments: d.keepAttachments,
       draftUid: d.uid,
+      draftMessageId: d.messageId,
     };
   }
 
   const src = request.source;
+  const who = src.from ? src.from.name || src.from.address : "alguien";
+  const quoteSummary = `${who} · ${shortDate(src.date)} · ${src.subject || "(sin asunto)"}`;
   const source = { folder: src.folder, uid: src.uid };
   const threading = {
     inReplyTo: src.messageId,
@@ -120,41 +157,47 @@ function stateFor(request: ComposeRequest, userEmail: string): ComposeState {
       ...base,
       mode: "forward",
       title: "Reenviar",
-      to: "",
       subject: forwardSubject(src.subject),
-      text: quoteForForward(src),
       source,
+      quoteSummary,
       forwardAttachments: src.attachments.length,
+      keepAttachments: src.attachments.length > 0,
     };
   }
 
-  const replyTarget = src.replyTo.length > 0 ? src.replyTo : src.from ? [src.from] : [];
+  const replyTarget: Recipient[] = (src.replyTo.length > 0 ? src.replyTo : src.from ? [src.from] : []).map((a) => ({
+    address: a.address,
+    name: a.name,
+  }));
   if (request.mode === "reply") {
     return {
       ...base,
       ...threading,
       mode: "reply",
       title: "Responder",
-      to: list(uniqueExcept(replyTarget, [])),
+      to: uniqueExcept(replyTarget, []),
       subject: replySubject(src.subject),
-      text: quoteForReply(src),
       source,
+      quoteSummary,
     };
   }
 
   // Responder a todos: el remitente y todos los destinatarios, menos uno mismo.
-  const to = uniqueExcept([...replyTarget, ...src.to], [userEmail]);
-  const cc = uniqueExcept(src.cc, [userEmail, ...to.map((a) => a.address)]);
+  const to = uniqueExcept([...replyTarget, ...src.to.map((a) => ({ address: a.address, name: a.name }))], [userEmail]);
+  const cc = uniqueExcept(
+    src.cc.map((a) => ({ address: a.address, name: a.name })),
+    [userEmail, ...to.map((a) => a.address)],
+  );
   return {
     ...base,
     ...threading,
     mode: "replyAll",
     title: "Responder a todos",
-    to: list(to),
-    cc: list(cc),
+    to,
+    cc,
     subject: replySubject(src.subject),
-    text: quoteForReply(src),
     source,
+    quoteSummary,
   };
 }
 

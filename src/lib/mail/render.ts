@@ -37,7 +37,8 @@ const ALLOWED_TAGS = [
   "col",
 ];
 
-function sanitize(html: string): string {
+/** Limpieza de un correo recibido (para pintarlo o citarlo al responder). */
+export function sanitizeIncoming(html: string): string {
   return sanitizeHtml(html, {
     allowedTags: ALLOWED_TAGS,
     // Los estilos van dentro de un marco aislado y sin acceso a la red: se
@@ -86,7 +87,8 @@ export interface RenderedMessage {
   hasRemoteContent: boolean;
 }
 
-function wrap(body: string, allowRemote: boolean): string {
+/** Documento completo para el marco: estilos base y política sin red. */
+export function wrap(body: string, allowRemote: boolean): string {
   const remote = allowRemote ? " https: http:" : "";
   const csp = [
     "default-src 'none'",
@@ -113,7 +115,7 @@ export function renderMessage(detail: MessageDetail, { allowRemote = false } = {
     for (const [cid, dataUri] of Object.entries(detail.inlineImages)) {
       html = html.split(`cid:${cid}`).join(dataUri);
     }
-    const clean = sanitize(html);
+    const clean = sanitizeIncoming(html);
     return { document: wrap(clean, allowRemote), hasRemoteContent: REMOTE_PATTERN.test(clean) };
   }
   const body = `<div style="white-space:pre-wrap">${linkify(escapeHtml(detail.text))}</div>`;

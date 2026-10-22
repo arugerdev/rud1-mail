@@ -67,3 +67,6 @@ public/pdfjs/
 
 # Worker de MapLibre: lo copia scripts/copy-maplibre-worker.mjs en cada build
 public/maplibre/
+
+# Base de datos local de rud1 Mail (desarrollo)
+data/

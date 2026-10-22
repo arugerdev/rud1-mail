@@ -11,4 +11,3 @@ proxy_read_timeout 120s;
 proxy_send_timeout 120s;
 # Los adjuntos viajan al enviar (hasta 25 MB, algo más con la codificación).
 client_max_body_size 40m;
-proxy_buffering on;

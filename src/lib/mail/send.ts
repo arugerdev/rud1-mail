@@ -6,7 +6,7 @@ import MailComposer from "nodemailer/lib/mail-composer";
 import { config } from "@/lib/config";
 import { withImap, withMailbox, type Credentials } from "@/lib/imap";
 import { specialFolderPath } from "@/lib/mail/folders";
-import { textToHtml, type AddressLike } from "@/lib/mail/text";
+import type { AddressLike } from "@/lib/mail/text";
 
 export interface OutgoingAttachment {
   filename: string;
@@ -20,8 +20,12 @@ export interface OutgoingMessage {
   cc: AddressLike[];
   bcc: AddressLike[];
   subject: string;
+  /** Mensaje ya montado (compose.ts): HTML y su versión en texto. */
+  html: string;
   text: string;
   attachments: OutgoingAttachment[];
+  /** Message-ID propio (los borradores lo usan para reencontrar sus datos). */
+  messageId?: string;
   inReplyTo?: string | null;
   references?: string[];
 }
@@ -34,7 +38,8 @@ function composerOptions(from: Credentials & { name: string }, msg: OutgoingMess
     bcc: msg.bcc,
     subject: msg.subject,
     text: msg.text,
-    html: `<div style="font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.55">${textToHtml(msg.text)}</div>`,
+    html: msg.html,
+    ...(msg.messageId ? { messageId: msg.messageId } : {}),
     attachments: msg.attachments.map((a) => ({
       filename: a.filename,
       contentType: a.contentType,

@@ -22,7 +22,23 @@ Plan completo y fases: `PLAN_CORREO.md` en la carpeta del proyecto rud1.
   marcar como leído o no leído, acciones sobre varios a la vez.
 - Se actualiza sola cada minuto y al volver a la pestaña. Funciona en el móvil.
 
-Pendiente: buzones comunes (fase 3) y administración (fase 4).
+Además:
+- **Tiempo real**: canal de eventos con IMAP IDLE (`/api/eventos`); el correo nuevo
+  aparece al momento, con aviso de escritorio y sonido opcional.
+- **Redactor con formato** (TipTap): negrita, listas, citas, enlaces, colores,
+  alineación; destinatarios como chips con autocompletado (equipo + contactos
+  aprendidos), guardado automático y **vista previa** exacta de lo que se envía.
+- **Perfil**: nombre, puesto, departamento, teléfono, foto, firma con
+  variables y preferencias (avisos, sonido, lista compacta).
+- **Administración** (Álvaro y Manuel, `ADMIN_EMAILS`): cabecera y pie
+  corporativos con variables, buzones (crear, desactivar, contraseña
+  provisional, enviar en nombre de, borrar) y direcciones (alias).
+
+Datos propios (perfiles, fotos, firmas, plantillas, contactos, borradores) en
+SQLite: `/data/rud1-mail.db` en el contenedor (volumen `rud1-mail-data`).
+En desarrollo, `DATA_DIR` fuera de la carpeta del proyecto.
+
+Pendiente: ver los buzones comunes dentro de rud1 Mail según permisos (fase 3).
 
 ## App instalable
 
@@ -89,8 +105,8 @@ nunca a rud1 Mail.
 
 ### Paneles de Mailcow
 
-Cerrados a internet (`deploy/site.rud1mail.custom`): `/admin` y ActiveSync
-devuelven 404 y SOGo está desactivado (`SKIP_SOGO=y`). Para entrar en la
+Cerrados a internet (`deploy/site.rud1mail.custom`): `/admin`, `/domainadmin`
+y ActiveSync devuelven 404 y SOGo está desactivado (`SKIP_SOGO=y`). Para entrar en la
 administración de Mailcow, por túnel SSH:
 
 ```bash

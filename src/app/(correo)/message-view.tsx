@@ -41,8 +41,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
-import { UserAvatar } from "@/shared/components/ui/user-avatar";
 
+import { Avatar } from "./avatar";
 import { useCompose } from "./compose/compose-provider";
 import { useMailAction } from "./message-list";
 import { MessageFrame } from "./message-frame";
@@ -92,6 +92,7 @@ export function MessageView({
   folders,
   page,
   query,
+  nextUid,
 }: {
   detail: MessageDetail;
   document: string;
@@ -101,6 +102,7 @@ export function MessageView({
   folders: Folder[];
   page: number;
   query: string;
+  nextUid: number | null;
 }) {
   const router = useRouter();
   const compose = useCompose();
@@ -108,7 +110,9 @@ export function MessageView({
   const [flagged, setFlagged] = React.useState(detail.flagged);
   const folder = detail.folder;
   const listHref = mailHref({ carpeta: folder, pagina: page, buscar: query || undefined });
-  const backToList = () => router.push(listHref);
+  // Tras quitarlo de la carpeta: al siguiente mensaje, o a la lista.
+  const backToList = () =>
+    router.push(nextUid ? mailHref({ carpeta: folder, pagina: page, buscar: query || undefined, mensaje: nextUid }) : listHref);
   const inTrash = specialUse === "trash";
   const inJunk = specialUse === "junk";
   const uids = [detail.uid];
@@ -126,7 +130,7 @@ export function MessageView({
   const showImagesHref = `${mailHref({ carpeta: folder, pagina: page, buscar: query || undefined, mensaje: detail.uid })}&imagenes=1`;
 
   return (
-    <article className="flex min-h-0 flex-1 flex-col">
+    <article className="rud1-in flex min-h-0 flex-1 flex-col">
       <div className="flex h-12 shrink-0 items-center gap-0.5 border-b border-border/40 px-2">
         <Button variant="ghost" size="icon" asChild aria-label="Volver a la lista" title="Volver a la lista">
           <Link href={listHref}>
@@ -239,10 +243,9 @@ export function MessageView({
           <h2 className="text-xl font-semibold leading-snug">{detail.subject || "(sin asunto)"}</h2>
 
           <div className="flex items-start gap-3">
-            <UserAvatar
+            <Avatar
+              email={detail.from?.address ?? "?"}
               name={detail.from?.name || detail.from?.address || "?"}
-              image={null}
-              seed={detail.from?.address ?? "?"}
               className="size-10"
             />
             <div className="min-w-0 flex-1">

@@ -6,7 +6,7 @@ const nextConfig = {
   output: "standalone",
   // Librerías de servidor que no deben pasar por webpack: hablan con sockets
   // (IMAP/SMTP) y traen dependencias opcionales nativas.
-  serverExternalPackages: ["imapflow", "mailparser", "nodemailer", "sanitize-html", "html-to-text"],
+  serverExternalPackages: ["imapflow", "mailparser", "nodemailer", "sanitize-html", "html-to-text", "better-sqlite3", "sharp"],
   experimental: {
     serverActions: {
       // Los adjuntos viajan en el envío del formulario de redactar.

@@ -3,9 +3,9 @@
 # Este archivo va en /opt/mailcow-dockerized/data/conf/nginx/ y Mailcow lo
 # incluye dentro de su propio servidor (sites-default.conf → site.*.custom).
 # No se puede redefinir su "location /", así que se toman solo las rutas de
-# rud1 Mail, con coincidencia exacta (=) o prefijo prioritario (^~), que ganan
-# a las de Mailcow. Todo lo demás sigue siendo de Mailcow: /admin,
-# /domainadmin, /SOGo, /api/v1, Autodiscover, ActiveSync, .well-known…
+# rud1 Mail, con coincidencia exacta (=), prefijo prioritario (^~) o una
+# expresión que no choca con las de Mailcow. Lo demás sigue siendo de Mailcow:
+# la API (/api/v1), Autodiscover, autoconfig…
 #
 # IP fija del contenedor (deploy/docker-compose.yml): si no está en marcha, da
 # 502 en estas rutas pero Nginx (y el resto del correo) arranca igual.
@@ -14,11 +14,11 @@ set $rud1mail http://172.22.1.240:3100;
 
 # Paneles de Mailcow cerrados a internet. Solo se llega por un túnel SSH al
 # propio servidor (ssh -L 9443:127.0.0.1:443), que Nginx ve como 172.22.1.1.
-# Los bots ya prueban /admin y exploits genéricos de PHP: lo que no se usa a
-# diario no se deja expuesto. Va a nivel de servidor (antes de elegir location)
-# y sobre $uri ya normalizada, así que no se esquiva con %61dmin ni con //.
+# La administración del día a día está en rud1 Mail (Ajustes → Administración).
+# Va a nivel de servidor (antes de elegir location) y sobre $uri ya
+# normalizada, así que no se esquiva con %61dmin ni con //.
 set $rud1_cerrado "";
-if ($uri ~* ^/(admin|SOGo|Microsoft-Server-ActiveSync)(/|$)) {
+if ($uri ~* ^/(admin|domainadmin|SOGo|Microsoft-Server-ActiveSync)(/|$)) {
     set $rud1_cerrado "1";
 }
 if ($remote_addr = "172.22.1.1") {
@@ -37,14 +37,30 @@ location = /entrar {
 location = /cambiar-contrasena {
     include /etc/nginx/conf.d/rud1mail.proxy;
 }
+location ^~ /ajustes {
+    include /etc/nginx/conf.d/rud1mail.proxy;
+}
 location ^~ /_next/ {
     include /etc/nginx/conf.d/rud1mail.proxy;
 }
-location ^~ /api/adjunto {
+# API propia de rud1 Mail (la de Mailcow es /api/v1 y sigue siendo suya).
+location ~ ^/api/(adjunto|estado|contactos|avatar)(/|$) {
     include /etc/nginx/conf.d/rud1mail.proxy;
 }
-location ^~ /api/estado {
-    include /etc/nginx/conf.d/rud1mail.proxy;
+# Canal en tiempo real: conexión larga y sin retener los eventos.
+location ^~ /api/eventos {
+    proxy_pass $rud1mail;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header Connection "";
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+    proxy_buffering off;
+    proxy_cache off;
 }
 location ~ ^/(manifest\.webmanifest|sw\.js|offline\.html|icon\.svg|icon-192\.png|icon-512\.png|icon-maskable-512\.png|apple-touch-icon\.png|favicon-32x32\.png|favicon\.ico)$ {
     include /etc/nginx/conf.d/rud1mail.proxy;

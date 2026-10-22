@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { folderSpecialUse, getMessage, listMessages } from "@/lib/mail/messages";
 import { listFolders } from "@/lib/mail/folders";
 import { renderMessage } from "@/lib/mail/render";
+import { getProfile } from "@/lib/profiles";
 import { requireUser } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +43,11 @@ export default async function MailPage({ searchParams }: PageProps) {
     folderSpecialUse(user, folder),
   ]);
 
+  const prefs = getProfile(user.email, user.name).prefs;
+  // Al archivar o borrar el abierto, se pasa al siguiente de la lista (o al anterior si era el último).
+  const index = detail ? list.items.findIndex((m) => m.uid === detail.uid) : -1;
+  const nextUid = prefs.openNext && index >= 0 ? (list.items[index + 1] ?? list.items[index - 1])?.uid ?? null : null;
+
   const rendered = detail ? renderMessage(detail, { allowRemote: params.imagenes === "1" }) : null;
 
   return (
@@ -60,6 +66,7 @@ export default async function MailPage({ searchParams }: PageProps) {
           list={list}
           query={query}
           selectedUid={detail?.uid ?? null}
+          compact={prefs.density === "compacta"}
         />
       </section>
       <section className={cn("min-h-0 min-w-0 flex-1", !detail && "hidden lg:flex")}>
@@ -76,6 +83,7 @@ export default async function MailPage({ searchParams }: PageProps) {
             folders={folders}
             page={page}
             query={query}
+            nextUid={nextUid}
           />
         ) : (
           <EmptyViewer notFound={Boolean(selected)} />

@@ -23,6 +23,8 @@ services:
       SMTP_PORT: "587"
       MAIL_TLS_SERVERNAME: mail.rud1.es
       MAILCOW_API_URL: https://nginx/api/v1
+    volumes:
+      - rud1-mail-data:/data
     networks:
       mailcow:
         ipv4_address: 172.22.1.240
@@ -33,6 +35,9 @@ services:
       options:
         max-size: 10m
         max-file: "3"
+
+volumes:
+  rud1-mail-data:
 
 networks:
   mailcow:

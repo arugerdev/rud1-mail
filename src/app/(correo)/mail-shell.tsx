@@ -18,9 +18,12 @@ import {
   RefreshCw,
   Search,
   Send,
+  Settings,
   Share,
   ShieldAlert,
+  ShieldCheck,
   Trash2,
+  UserRound,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -41,19 +44,13 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
 import { Input } from "@/shared/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/shared/components/ui/dialog";
-import { UserAvatar } from "@/shared/components/ui/user-avatar";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";
 import { useSpring } from "@/shared/hooks/use-spring";
 
 import { setAppBadge, usePwa } from "../pwa";
+import { Avatar } from "./avatar";
 import { useCompose } from "./compose/compose-provider";
-import { useMailWatcher, useNotificationPermission } from "./mail-watcher";
+import { useMailWatcher, useNotificationPermission, type LiveState, type WatcherPrefs } from "./mail-watcher";
 import { parseMailto } from "./mailto";
 import { mailHref } from "./nav";
 
@@ -78,9 +75,17 @@ function folderCount(folder: Folder): number {
   return folder.unread;
 }
 
-function FolderNav({ folders, current }: { folders: Folder[]; current: string }) {
+const navClass = (active: boolean) =>
+  cn(
+    "group flex items-center gap-3 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors",
+    active
+      ? "bg-primary-soft/40 text-primary-foreground shadow-glass-xs dark:text-primary"
+      : "text-muted-foreground hover:bg-surface-1/50 hover:text-foreground",
+  );
+
+function FolderNav({ folders, current }: { folders: Folder[]; current: string | null }) {
   return (
-    <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-3 py-2" aria-label="Carpetas">
+    <nav className="space-y-0.5" aria-label="Carpetas">
       <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">Carpetas</p>
       {folders.map((folder) => {
         const Icon = folder.specialUse ? FOLDER_ICONS[folder.specialUse] : FolderIcon;
@@ -91,25 +96,22 @@ function FolderNav({ folders, current }: { folders: Folder[]; current: string })
             key={folder.path}
             href={mailHref({ carpeta: folder.path })}
             aria-current={active ? "page" : undefined}
-            className={cn(
-              "group flex items-center gap-3 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors",
-              active
-                ? "bg-primary-soft/40 text-primary-foreground shadow-glass-xs dark:text-primary"
-                : "text-muted-foreground hover:bg-surface-1/50 hover:text-foreground",
-            )}
+            className={navClass(active)}
             style={folder.depth > 0 ? { paddingLeft: `${0.625 + folder.depth * 0.75}rem` } : undefined}
           >
             <Icon
               className={cn(
-                "size-4 shrink-0",
+                "size-4 shrink-0 transition-transform group-hover:scale-110",
                 active ? "text-primary-foreground dark:text-primary" : "text-muted-foreground group-hover:text-foreground",
               )}
             />
             <span className="truncate">{folder.name}</span>
             {count > 0 && (
               <span
+                // La cifra "salta" cada vez que cambia.
+                key={count}
                 className={cn(
-                  "ml-auto rounded-md px-1.5 text-xs tabular-nums",
+                  "rud1-pop ml-auto rounded-md px-1.5 text-xs tabular-nums",
                   folder.specialUse === "inbox" ? "bg-primary/15 font-semibold text-primary" : "text-muted-foreground",
                 )}
               >
@@ -156,51 +158,169 @@ function AccountMenu({ user }: { user: ShellUser }) {
 
   return (
     <>
-    <IosInstallDialog open={iosHelp} onOpenChange={setIosHelp} />
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-auto w-full justify-start gap-3 px-2 py-2">
-          <UserAvatar name={user.name} image={null} seed={user.email} className="size-8" />
-          <span className="flex min-w-0 flex-1 flex-col items-start text-left">
-            <span className="w-full truncate text-sm font-medium">{user.name}</span>
-            <span className="w-full truncate text-xs text-muted-foreground">{user.email}</span>
-          </span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" side="top" className="w-60">
-        <DropdownMenuLabel className="truncate">{user.email}</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {pwa.canInstall && (
-          <DropdownMenuItem onClick={() => void pwa.install()}>
-            <Download className="size-4" /> Instalar la app
+      <IosInstallDialog open={iosHelp} onOpenChange={setIosHelp} />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" className="h-auto w-full justify-start gap-3 px-2 py-2">
+            <Avatar email={user.email} name={user.name} className="size-8" />
+            <span className="flex min-w-0 flex-1 flex-col items-start text-left">
+              <span className="w-full truncate text-sm font-medium">{user.name}</span>
+              <span className="w-full truncate text-xs text-muted-foreground">{user.email}</span>
+            </span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" side="top" className="w-64">
+          <DropdownMenuLabel className="truncate">{user.email}</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <Link href="/ajustes">
+              <UserRound className="size-4" /> Mi perfil y firma
+            </Link>
           </DropdownMenuItem>
-        )}
-        {showIosHelp && (
-          <DropdownMenuItem onClick={() => setIosHelp(true)}>
-            <Download className="size-4" /> Instalar en el iPhone o iPad
+          {pwa.canInstall && (
+            <DropdownMenuItem onClick={() => void pwa.install()}>
+              <Download className="size-4" /> Instalar la app
+            </DropdownMenuItem>
+          )}
+          {showIosHelp && (
+            <DropdownMenuItem onClick={() => setIosHelp(true)}>
+              <Download className="size-4" /> Instalar en el iPhone o iPad
+            </DropdownMenuItem>
+          )}
+          {notifications === "default" && (
+            <DropdownMenuItem onClick={() => void requestNotifications()}>
+              <Bell className="size-4" /> Avisarme del correo nuevo
+            </DropdownMenuItem>
+          )}
+          {notifications === "denied" && (
+            <DropdownMenuItem disabled>
+              <BellOff className="size-4" /> Avisos bloqueados en el navegador
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem asChild>
+            <Link href="/cambiar-contrasena">
+              <KeyRound className="size-4" /> Cambiar la contraseña
+            </Link>
           </DropdownMenuItem>
-        )}
-        {notifications === "default" && (
-          <DropdownMenuItem onClick={() => void requestNotifications()}>
-            <Bell className="size-4" /> Avisarme del correo nuevo
+          <DropdownMenuItem onClick={() => void signOut()}>
+            <LogOut className="size-4" /> Cerrar sesión
           </DropdownMenuItem>
-        )}
-        {notifications === "denied" && (
-          <DropdownMenuItem disabled>
-            <BellOff className="size-4" /> Avisos bloqueados en el navegador
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem asChild>
-          <Link href="/cambiar-contrasena">
-            <KeyRound className="size-4" /> Cambiar la contraseña
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => void signOut()}>
-          <LogOut className="size-4" /> Cerrar sesión
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </>
+  );
+}
+
+function SidebarBody({
+  user,
+  folders,
+  current,
+  isAdmin,
+  pathname,
+}: {
+  user: ShellUser;
+  folders: Folder[];
+  current: string | null;
+  isAdmin: boolean;
+  pathname: string;
+}) {
+  const compose = useCompose();
+  return (
+    <>
+      <div className="flex h-14 shrink-0 items-center gap-2 px-4">
+        <Link href="/" className="flex items-center gap-2">
+          <Logo />
+          <span className="rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Mail
+          </span>
+        </Link>
+      </div>
+      <div className="px-3 pb-2 pt-1">
+        <Button className="w-full justify-start transition-transform hover:-translate-y-px" onClick={() => compose.open({ mode: "new" })}>
+          <PenSquare /> Redactar
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-2">
+        <FolderNav folders={folders} current={current} />
+        <nav className="space-y-0.5" aria-label="Ajustes">
+          <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">Ajustes</p>
+          <Link href="/ajustes" className={navClass(pathname === "/ajustes")}>
+            <Settings className="size-4 shrink-0" />
+            <span className="truncate">Mi perfil y firma</span>
+          </Link>
+          {isAdmin && (
+            <Link href="/ajustes/administracion" className={navClass(pathname.startsWith("/ajustes/administracion"))}>
+              <ShieldCheck className="size-4 shrink-0" />
+              <span className="truncate">Administración</span>
+            </Link>
+          )}
+        </nav>
+      </div>
+      <div className="shrink-0 border-t border-border/40 p-3">
+        <AccountMenu user={user} />
+      </div>
+    </>
+  );
+}
+
+/** Menú lateral del móvil: entra y sale con muelle, como en el panel de rud1. */
+function MobileMenu({ open, onClose, children }: { open: boolean; onClose: () => void; children: React.ReactNode }) {
+  const { valor } = useSpring(open ? 1 : 0, { rigidez: 420, amortiguacion: 38 });
+  if (!open && valor < 0.001) return null;
+  return (
+    <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menú">
+      <div className="absolute inset-0 bg-background/60 backdrop-blur-sm" style={{ opacity: Math.min(1, Math.max(0, valor)) }} onClick={onClose} />
+      <aside
+        className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col border-r border-border/40 bg-surface-1/95 backdrop-blur-2xl"
+        style={{ transform: `translateX(${(Math.min(1, valor) - 1) * 100}%)` }}
+      >
+        <Button variant="ghost" size="icon" className="absolute right-2 top-2" aria-label="Cerrar el menú" onClick={onClose}>
+          <X className="size-4" />
+        </Button>
+        {children}
+      </aside>
+    </div>
+  );
+}
+
+function SearchBox({ folder, folderName }: { folder: string; folderName: string }) {
+  const params = useSearchParams();
+  const router = useRouter();
+  const [value, setValue] = React.useState(params.get("buscar") ?? "");
+  React.useEffect(() => setValue(params.get("buscar") ?? ""), [params]);
+
+  return (
+    <form
+      role="search"
+      className="relative w-full max-w-xl"
+      onSubmit={(e) => {
+        e.preventDefault();
+        router.push(mailHref({ carpeta: folder, buscar: value.trim() || undefined }));
+      }}
+    >
+      <Search className="absolute left-3 top-1/2 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder={`Buscar en ${folderName}`}
+        aria-label="Buscar"
+        className="h-9 pl-10"
+      />
+    </form>
+  );
+}
+
+/** Punto verde: el correo llega al instante. Ámbar: reconectando. */
+function LiveIndicator({ state }: { state: LiveState }) {
+  const label = state === "en-directo" ? "En directo" : state === "conectando" ? "Conectando…" : "Reconectando…";
+  return (
+    <span className="hidden items-center gap-1.5 rounded-full px-2 py-1 text-[11px] text-muted-foreground sm:flex" title={label}>
+      <span className="relative flex size-2">
+        {state === "en-directo" && <span className="absolute inline-flex size-full animate-ping rounded-full bg-success/60" />}
+        <span className={cn("relative inline-flex size-2 rounded-full", state === "en-directo" ? "bg-success" : "bg-warning")} />
+      </span>
+      {label}
+    </span>
   );
 }
 
@@ -213,6 +333,40 @@ function InstallButton() {
       <Download className="size-4" />
       <span className="hidden sm:inline">Instalar</span>
     </Button>
+  );
+}
+
+/** La primera vez, una franja invita a activar los avisos de escritorio. */
+function NotificationBanner({ enabled }: { enabled: boolean }) {
+  const [permission, request] = useNotificationPermission();
+  const [dismissed, setDismissed] = React.useState(true);
+  React.useEffect(() => {
+    try {
+      setDismissed(localStorage.getItem("rud1mail:avisos-banner") === "1");
+    } catch {
+      setDismissed(false);
+    }
+  }, []);
+  if (!enabled || permission !== "default" || dismissed) return null;
+  const hide = () => {
+    setDismissed(true);
+    try {
+      localStorage.setItem("rud1mail:avisos-banner", "1");
+    } catch {
+      // sin almacenamiento: vuelve a salir la próxima vez
+    }
+  };
+  return (
+    <div className="rud1-in flex shrink-0 items-center gap-3 border-b border-primary/20 bg-primary-soft/20 px-4 py-2 text-sm">
+      <Bell className="size-4 shrink-0 text-primary" />
+      <span className="min-w-0 flex-1">Activa los avisos de escritorio para enterarte del correo nuevo al momento.</span>
+      <Button size="sm" onClick={() => void request().then(hide)}>
+        Activar
+      </Button>
+      <button type="button" aria-label="Ahora no" className="rounded p-1 text-muted-foreground hover:text-foreground" onClick={hide}>
+        <X className="size-4" />
+      </button>
+    </div>
   );
 }
 
@@ -254,113 +408,43 @@ function useComposeFromUrl() {
   }, [compose]);
 }
 
-function SidebarBody({ user, folders, current }: { user: ShellUser; folders: Folder[]; current: string }) {
-  const compose = useCompose();
-  return (
-    <>
-      <div className="flex h-14 shrink-0 items-center gap-2 px-4">
-        <Link href="/" className="flex items-center gap-2">
-          <Logo />
-          <span className="rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Mail
-          </span>
-        </Link>
-      </div>
-      <div className="px-3 pb-2 pt-1">
-        <Button className="w-full justify-start" onClick={() => compose.open({ mode: "new" })}>
-          <PenSquare /> Redactar
-        </Button>
-      </div>
-      <FolderNav folders={folders} current={current} />
-      <div className="shrink-0 border-t border-border/40 p-3">
-        <AccountMenu user={user} />
-      </div>
-    </>
-  );
-}
-
-/** Menú lateral del móvil: entra y sale con muelle, como en el panel de rud1. */
-function MobileMenu({ open, onClose, children }: { open: boolean; onClose: () => void; children: React.ReactNode }) {
-  const { valor } = useSpring(open ? 1 : 0, { rigidez: 420, amortiguacion: 38 });
-  if (!open && valor < 0.001) return null;
-  return (
-    <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menú">
-      <div
-        className="absolute inset-0 bg-background/60 backdrop-blur-sm"
-        style={{ opacity: Math.min(1, Math.max(0, valor)) }}
-        onClick={onClose}
-      />
-      <aside
-        className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col border-r border-border/40 bg-surface-1/95 backdrop-blur-2xl"
-        style={{ transform: `translateX(${(Math.min(1, valor) - 1) * 100}%)` }}
-      >
-        <Button variant="ghost" size="icon" className="absolute right-2 top-2" aria-label="Cerrar el menú" onClick={onClose}>
-          <X className="size-4" />
-        </Button>
-        {children}
-      </aside>
-    </div>
-  );
-}
-
-function SearchBox({ folder, folderName }: { folder: string; folderName: string }) {
-  const params = useSearchParams();
-  const router = useRouter();
-  const [value, setValue] = React.useState(params.get("buscar") ?? "");
-  React.useEffect(() => setValue(params.get("buscar") ?? ""), [params]);
-
-  return (
-    <form
-      role="search"
-      className="relative w-full max-w-xl"
-      onSubmit={(e) => {
-        e.preventDefault();
-        router.push(mailHref({ carpeta: folder, buscar: value.trim() || undefined }));
-      }}
-    >
-      <Search className="absolute left-3 top-1/2 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
-      <Input
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder={`Buscar en ${folderName}`}
-        aria-label="Buscar"
-        className="h-9 pl-10"
-      />
-    </form>
-  );
-}
-
 export function MailShell({
   user,
   folders,
+  prefs,
+  isAdmin,
   children,
 }: {
   user: ShellUser;
   folders: Folder[];
+  prefs: WatcherPrefs;
+  isAdmin: boolean;
   children: React.ReactNode;
 }) {
   const params = useSearchParams();
   const pathname = usePathname();
   const router = useRouter();
-  const current = params.get("carpeta") ?? "INBOX";
-  const folderName = folders.find((f) => f.path === current)?.name ?? current;
+  const inSettings = pathname.startsWith("/ajustes");
+  const current = inSettings ? null : params.get("carpeta") ?? "INBOX";
+  const folderName = folders.find((f) => f.path === (current ?? "INBOX"))?.name ?? current ?? "";
   const [open, setOpen] = React.useState(false);
   const [refreshing, startRefresh] = React.useTransition();
 
   React.useEffect(() => setOpen(false), [pathname, current]);
 
   const refresh = React.useCallback(() => startRefresh(() => router.refresh()), [router]);
-  useMailWatcher();
+  const live = useMailWatcher(prefs);
   useComposeFromUrl();
 
   const inbox = folders.find((f) => f.specialUse === "inbox");
   React.useEffect(() => {
     const unread = inbox?.unread ?? 0;
-    document.title = unread > 0 ? `(${unread}) ${folderName} · rud1 Mail` : `${folderName} · rud1 Mail`;
+    const place = inSettings ? "Ajustes" : folderName;
+    document.title = unread > 0 ? `(${unread}) ${place} · rud1 Mail` : `${place} · rud1 Mail`;
     setAppBadge(unread);
-  }, [inbox?.unread, folderName]);
+  }, [inbox?.unread, folderName, inSettings]);
 
-  const body = <SidebarBody user={user} folders={folders} current={current} />;
+  const body = <SidebarBody user={user} folders={folders} current={current} isAdmin={isAdmin} pathname={pathname} />;
 
   return (
     <div className="flex h-dvh overflow-hidden bg-muted/20">
@@ -377,8 +461,13 @@ export function MailShell({
           <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Abrir el menú" onClick={() => setOpen(true)}>
             <Menu className="size-5" />
           </Button>
-          <SearchBox folder={current} folderName={folderName} />
+          {inSettings ? (
+            <h1 className="truncate text-sm font-semibold">Ajustes</h1>
+          ) : (
+            <SearchBox folder={current ?? "INBOX"} folderName={folderName} />
+          )}
           <div className="ml-auto flex items-center gap-1">
+            <LiveIndicator state={live} />
             <InstallButton />
             <Button variant="ghost" size="icon" aria-label="Actualizar" title="Actualizar" onClick={refresh}>
               <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
@@ -386,6 +475,7 @@ export function MailShell({
             <ThemeToggle labels={THEME_LABELS} />
           </div>
         </header>
+        <NotificationBanner enabled={prefs.notify} />
         <main className="flex min-h-0 flex-1">{children}</main>
       </div>
       <ComposeFab />
@@ -399,7 +489,7 @@ function ComposeFab() {
   return (
     <Button
       size="icon"
-      className="fixed bottom-5 right-5 z-40 size-14 rounded-2xl shadow-glass-lg lg:hidden"
+      className="fixed bottom-5 right-5 z-40 size-14 rounded-2xl shadow-glass-lg transition-transform active:scale-95 lg:hidden"
       aria-label="Redactar"
       onClick={() => compose.open({ mode: "new" })}
     >

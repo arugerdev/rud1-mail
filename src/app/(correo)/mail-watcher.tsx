@@ -6,12 +6,19 @@ import { useRouter } from "next/navigation";
 import { setAppBadge } from "../pwa";
 import { mailHref } from "./nav";
 
-interface InboxState {
-  unread: number;
-  latest: { uid: number; from: string; subject: string } | null;
+interface NewMail {
+  uid: number | null;
+  from: string;
+  address: string;
+  subject: string;
 }
 
-const POLL_MS = 60_000;
+type Counts = Record<string, { unread: number; total: number }>;
+
+export interface WatcherPrefs {
+  notify: boolean;
+  sound: boolean;
+}
 
 /** Lo que expone la app de escritorio (desktop/src/preload.ts). */
 interface DesktopBridge {
@@ -23,82 +30,140 @@ function desktopBridge(): DesktopBridge | undefined {
   return (window as Window & { rud1Desktop?: DesktopBridge }).rud1Desktop;
 }
 
-async function notify(state: NonNullable<InboxState["latest"]>, open: (url: string) => void) {
-  const title = state.from ? `Correo de ${state.from}` : "Correo nuevo";
+async function notify(mail: NewMail, open: (url: string) => void) {
+  const title = mail.from ? `Correo de ${mail.from}` : "Correo nuevo";
+  const url = mail.uid ? mailHref({ mensaje: mail.uid }) : "/";
   const options: NotificationOptions = {
-    body: state.subject,
+    body: mail.subject,
     icon: "/icon-192.png",
     badge: "/icon-192.png",
-    tag: `rud1-mail-${state.uid}`,
-    data: { url: mailHref({ mensaje: state.uid }) },
+    tag: `rud1-mail-${mail.uid ?? Date.now()}`,
+    data: { url },
   };
   // En la app de escritorio, el aviso del sistema trae la ventana al frente al pulsarlo.
   const desktop = desktopBridge();
   if (desktop) {
-    const notification = new Notification(title, options);
-    notification.onclick = () => {
+    const n = new Notification(title, options);
+    n.onclick = () => {
       desktop.focus();
-      open(options.data.url);
+      open(url);
     };
     return;
   }
-  // Con el service worker, pulsar el aviso trae la app al frente aunque esté cerrada la pestaña.
+  // Con el service worker, pulsar el aviso trae la app al frente aunque la pestaña no esté a la vista.
   const registration = await navigator.serviceWorker?.getRegistration().catch(() => undefined);
   if (registration) await registration.showNotification(title, options);
   else new Notification(title, options);
 }
 
+/** Un "ding" corto, sin archivos de audio. */
+function chime() {
+  try {
+    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new Ctx();
+    const now = ctx.currentTime;
+    [880, 1320].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, now + i * 0.09);
+      gain.gain.exponentialRampToValueAtTime(0.12, now + i * 0.09 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.09 + 0.35);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now + i * 0.09);
+      osc.stop(now + i * 0.09 + 0.4);
+    });
+    setTimeout(() => void ctx.close(), 1000);
+  } catch {
+    // Sin audio no pasa nada.
+  }
+}
+
+export type LiveState = "conectando" | "en-directo" | "sin-conexion";
+
 /**
- * Vigila la bandeja de entrada mientras rud1 Mail está abierto (aunque esté en
- * segundo plano): pone el contador en el icono de la app, avisa del correo
- * nuevo si se han activado los avisos, y refresca la vista si está a la vista.
+ * Mantiene rud1 Mail al día en tiempo real: escucha el canal de eventos del
+ * servidor, refresca la vista cuando algo cambia, pone el contador en el icono
+ * de la app y avisa del correo nuevo. Si el canal se cae, se reconecta solo
+ * (y mientras tanto pregunta cada minuto).
  */
-export function useMailWatcher() {
+export function useMailWatcher(prefs: WatcherPrefs): LiveState {
   const router = useRouter();
-  const lastUid = React.useRef<number | null>(null);
+  const [state, setState] = React.useState<LiveState>("conectando");
+  const prefsRef = React.useRef(prefs);
+  prefsRef.current = prefs;
 
   React.useEffect(() => {
+    let source: EventSource | null = null;
+    let retry: number | undefined;
+    let fallback: number | undefined;
+    let refreshTimer: number | undefined;
+    let lastCounts = "";
     let stopped = false;
 
-    const check = async () => {
-      let state: InboxState;
-      try {
-        const res = await fetch("/api/estado", { cache: "no-store" });
-        if (!res.ok) return;
-        state = (await res.json()) as InboxState;
-      } catch {
-        return;
-      }
-      if (stopped) return;
-      setAppBadge(state.unread);
-
-      const latest = state.latest;
-      const isNew = latest !== null && lastUid.current !== null && latest.uid > lastUid.current;
-      if (latest) lastUid.current = Math.max(lastUid.current ?? 0, latest.uid);
-
-      const visible = document.visibilityState === "visible";
-      if (visible) router.refresh();
-      if (
-        isNew &&
-        latest &&
-        (!visible || !document.hasFocus()) &&
-        "Notification" in window &&
-        Notification.permission === "granted"
-      ) {
-        void notify(latest, (url) => router.push(url)).catch(() => undefined);
-      }
+    // Varios cambios seguidos (p. ej. marcar diez como leídos) = una sola recarga.
+    const refreshSoon = () => {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => router.refresh(), 300);
     };
 
-    void check();
-    const timer = window.setInterval(check, POLL_MS);
-    const onFocus = () => void check();
+    const connect = () => {
+      if (stopped) return;
+      setState("conectando");
+      source = new EventSource("/api/eventos");
+      source.addEventListener("listo", () => {
+        setState("en-directo");
+        window.clearInterval(fallback);
+      });
+      source.addEventListener("nuevo", (event) => {
+        const mail = JSON.parse((event as MessageEvent).data) as NewMail;
+        refreshSoon();
+        const away = document.visibilityState !== "visible" || !document.hasFocus();
+        if (prefsRef.current.sound) chime();
+        if (
+          away &&
+          prefsRef.current.notify &&
+          "Notification" in window &&
+          Notification.permission === "granted"
+        ) {
+          void notify(mail, (url) => router.push(url)).catch(() => undefined);
+        }
+      });
+      source.addEventListener("cambio", refreshSoon);
+      source.addEventListener("contadores", (event) => {
+        const raw = (event as MessageEvent).data as string;
+        const counts = JSON.parse(raw) as Counts;
+        setAppBadge(counts.INBOX?.unread ?? 0);
+        if (lastCounts && raw !== lastCounts) refreshSoon();
+        lastCounts = raw;
+      });
+      source.onerror = () => {
+        source?.close();
+        setState("sin-conexion");
+        // Mientras no vuelve el canal, se pregunta cada minuto.
+        window.clearInterval(fallback);
+        fallback = window.setInterval(() => {
+          if (document.visibilityState === "visible") router.refresh();
+        }, 60_000);
+        retry = window.setTimeout(connect, 5_000);
+      };
+    };
+
+    connect();
+    const onFocus = () => refreshSoon();
     window.addEventListener("focus", onFocus);
     return () => {
       stopped = true;
-      window.clearInterval(timer);
+      source?.close();
+      window.clearTimeout(retry);
+      window.clearTimeout(refreshTimer);
+      window.clearInterval(fallback);
       window.removeEventListener("focus", onFocus);
     };
   }, [router]);
+
+  return state;
 }
 
 export type NotificationState = "unsupported" | "default" | "granted" | "denied";
