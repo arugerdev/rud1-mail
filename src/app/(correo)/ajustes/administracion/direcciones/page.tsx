@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { requireAdmin } from "@/lib/admin";
+import { requirePermission } from "@/lib/admin";
 import { config } from "@/lib/config";
 import { listAliases, listMailboxes, mailcowAvailable } from "@/lib/mailcow";
 
@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "Direcciones" };
 export const dynamic = "force-dynamic";
 
 export default async function AliasesPage() {
-  await requireAdmin();
+  await requirePermission("admin.buzones");
   if (!mailcowAvailable()) return <p className="text-sm text-muted-foreground">La administración no está disponible ahora mismo.</p>;
   const [aliases, boxes] = await Promise.all([listAliases(config.domain), listMailboxes(config.domain)]);
   return (

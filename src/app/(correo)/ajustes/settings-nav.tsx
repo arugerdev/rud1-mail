@@ -2,22 +2,26 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AtSign, FileSignature, Inbox, UserRound, UsersRound } from "lucide-react";
+import { AtSign, FileSignature, Inbox, ShieldCheck, UserRound, UsersRound } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 const PERSONAL = [{ href: "/ajustes", label: "Mi perfil y firma", icon: UserRound }];
-const ADMIN = [
-  { href: "/ajustes/administracion", label: "Cabecera y pie", icon: FileSignature },
-  { href: "/ajustes/administracion/usuarios", label: "Usuarios", icon: UsersRound },
-  { href: "/ajustes/administracion/buzones-comunes", label: "Buzones comunes", icon: Inbox },
-  { href: "/ajustes/administracion/direcciones", label: "Direcciones", icon: AtSign },
+/** Qué pestaña de administración ve cada uno (lib/admin.ts → adminAccess). */
+type Need = "owner" | "mailboxes" | "templates";
+const ADMIN: { href: string; label: string; icon: typeof UserRound; need: Need }[] = [
+  { href: "/ajustes/administracion", label: "Cabecera y pie", icon: FileSignature, need: "templates" },
+  { href: "/ajustes/administracion/usuarios", label: "Usuarios", icon: UsersRound, need: "mailboxes" },
+  { href: "/ajustes/administracion/roles", label: "Roles y equipos", icon: ShieldCheck, need: "owner" },
+  { href: "/ajustes/administracion/buzones-comunes", label: "Buzones comunes", icon: Inbox, need: "owner" },
+  { href: "/ajustes/administracion/direcciones", label: "Direcciones", icon: AtSign, need: "mailboxes" },
 ];
 
-/** Pestañas de ajustes; las de administración solo para quien administra. */
-export function SettingsNav({ isAdmin }: { isAdmin: boolean }) {
+/** Pestañas de ajustes; las de administración, según los permisos de cada uno. */
+export function SettingsNav({ access }: { access: { owner: boolean; mailboxes: boolean; templates: boolean } }) {
   const pathname = usePathname();
-  const items = isAdmin ? [...PERSONAL, ...ADMIN] : PERSONAL;
+  const need = { owner: access.owner, mailboxes: access.mailboxes, templates: access.templates };
+  const items = [...PERSONAL, ...ADMIN.filter((i) => need[i.need])];
   return (
     <nav className="flex gap-1 overflow-x-auto rounded-2xl border border-border/50 bg-surface-1/60 p-1 shadow-glass-xs backdrop-blur-xl">
       {items.map(({ href, label, icon: Icon }) => {

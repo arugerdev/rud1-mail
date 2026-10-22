@@ -10,6 +10,7 @@ import {
   Play,
   Plus,
   Send,
+  ShieldCheck,
   Trash2,
   UserRound,
   UsersRound,
@@ -21,14 +22,13 @@ import {
   deleteMailboxAction,
   resetPasswordAction,
   setMailboxActiveAction,
-  updateMailboxAction,
   type AdminResult,
 } from "@/app/actions/admin";
 import type { MailboxInfo } from "@/lib/mailcow";
+import type { PermissionSet, Role } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
-import { Checkbox } from "@/shared/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -49,10 +49,13 @@ import { Label } from "@/shared/components/ui/label";
 
 import { Avatar } from "../../../avatar";
 import { formatSize } from "../../../nav";
+import { PermissionsDialog, type AccessInfo } from "./permissions-dialog";
 
 export interface UserRow extends MailboxInfo {
   displayName: string;
   position: string;
+  /** Solo en personas: rol, excepciones, equipos y lo que de verdad puede hacer. */
+  access?: AccessInfo & { owner: boolean; system: boolean; effective: PermissionSet; teams: { name: string; color: string }[] };
 }
 
 function relative(ms: number | null): string {
@@ -70,6 +73,7 @@ function relative(ms: number | null): string {
 
 function StateBadge({ row }: { row: UserRow }) {
   if (!row.active) return <Badge variant="destructive">Desactivado</Badge>;
+  if (row.loginBlocked) return <Badge variant="warning">Sin entrada</Badge>;
   if (row.forcePasswordUpdate) return <Badge variant="warning">Pendiente de entrar</Badge>;
   return <Badge variant="success">Activo</Badge>;
 }
@@ -233,67 +237,6 @@ function NewMailboxDialog({
   );
 }
 
-function SendAsDialog({
-  row,
-  sharedBoxes,
-  onClose,
-}: {
-  row: UserRow | null;
-  sharedBoxes: UserRow[];
-  onClose: () => void;
-}) {
-  const [selected, setSelected] = React.useState<string[]>([]);
-  const [busy, start] = React.useTransition();
-  React.useEffect(() => setSelected(row?.sendAs ?? []), [row]);
-  return (
-    <Dialog open={row !== null} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Enviar en nombre de…</DialogTitle>
-          <DialogDescription>
-            Buzones comunes desde los que <strong>{row?.displayName}</strong> puede enviar (por ejemplo, responder como soporte@).
-          </DialogDescription>
-        </DialogHeader>
-        <div className="max-h-72 space-y-1 overflow-y-auto">
-          {sharedBoxes.map((b) => (
-            <label key={b.username} className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-accent/40">
-              <Checkbox
-                checked={selected.includes(b.username)}
-                onChange={(e) =>
-                  setSelected(e.target.checked ? [...selected, b.username] : selected.filter((s) => s !== b.username))
-                }
-              />
-              <span className="text-sm">{b.username}</span>
-              <span className="truncate text-xs text-muted-foreground">{b.displayName}</span>
-            </label>
-          ))}
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button
-            disabled={busy}
-            onClick={() =>
-              start(async () => {
-                if (!row) return;
-                const r = await updateMailboxAction(row.username, { sendAs: selected });
-                if (!r.ok) toast.error(r.error ?? "No se pudo guardar.");
-                else {
-                  toast.success("Permisos guardados");
-                  onClose();
-                }
-              })
-            }
-          >
-            {busy ? <Loader2 className="animate-spin" /> : null} Guardar
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function DeleteDialog({ row, onClose }: { row: UserRow | null; onClose: () => void }) {
   const [typed, setTyped] = React.useState("");
   const [busy, start] = React.useTransition();
@@ -339,10 +282,52 @@ function DeleteDialog({ row, onClose }: { row: UserRow | null; onClose: () => vo
   );
 }
 
-export function UsersSettings({ rows, me, domain }: { rows: UserRow[]; me: string; domain: string }) {
+/** Rol, equipos y lo que tiene quitado, en una línea. */
+function AccessLine({ row, roles }: { row: UserRow; roles: Role[] }) {
+  const a = row.access;
+  if (!a || a.system) return null;
+  const role = roles.find((r) => r.id === a.roleId);
+  const missing = [
+    !a.effective["correo.enviar"] && "no envía",
+    !a.effective["correo.recibir"] && "no recibe",
+    !a.effective["correo.comunes"] && "sin buzones comunes",
+  ].filter(Boolean);
+  return (
+    <span className="mt-1 flex flex-wrap items-center gap-1">
+      <span
+        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-white"
+        style={{ background: a.owner ? "#0f172a" : role?.color ?? "#64748b" }}
+      >
+        <ShieldCheck className="size-3" /> {a.owner ? "Propietario" : role?.name ?? a.roleId}
+      </span>
+      {a.teams.map((t) => (
+        <span key={t.name} className="rounded-full border px-2 py-0.5 text-[11px]" style={{ borderColor: t.color, color: t.color }}>
+          {t.name}
+        </span>
+      ))}
+      {Object.keys(a.overrides).length > 0 && <span className="text-[11px] text-muted-foreground">con excepciones</span>}
+      {missing.length > 0 && <span className="text-[11px] text-warning">· {missing.join(", ")}</span>}
+    </span>
+  );
+}
+
+export function UsersSettings({
+  rows,
+  me,
+  domain,
+  roles,
+  canManageAccess,
+}: {
+  rows: UserRow[];
+  me: string;
+  domain: string;
+  roles: Role[];
+  /** Solo los propietarios reparten roles y permisos. */
+  canManageAccess: boolean;
+}) {
   const [creating, setCreating] = React.useState(false);
   const [password, setPassword] = React.useState<{ email: string; password: string } | null>(null);
-  const [sendAs, setSendAs] = React.useState<UserRow | null>(null);
+  const [editing, setEditing] = React.useState<UserRow | null>(null);
   const [deleting, setDeleting] = React.useState<UserRow | null>(null);
   const [filter, setFilter] = React.useState<"todos" | "personas" | "comunes">("todos");
   const [pending, start] = React.useTransition();
@@ -408,6 +393,7 @@ export function UsersSettings({ rows, me, domain }: { rows: UserRow[]; me: strin
                   {row.shared ? " · Común" : row.position ? ` · ${row.position}` : ""}
                   {row.sendAs.length > 0 && ` · envía como ${row.sendAs.length}`}
                 </p>
+                <AccessLine row={row} roles={roles} />
               </div>
               <StateBadge row={row} />
               <div className="hidden text-xs text-muted-foreground md:block md:w-28">
@@ -422,9 +408,9 @@ export function UsersSettings({ rows, me, domain }: { rows: UserRow[]; me: strin
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-60">
-                  {!row.shared && (
-                    <DropdownMenuItem onClick={() => setSendAs(row)}>
-                      <Send className="size-4" /> Enviar en nombre de…
+                  {!row.shared && canManageAccess && row.access && !row.access.system && (
+                    <DropdownMenuItem disabled={row.access.owner || row.username === me} onClick={() => setEditing(row)}>
+                      <ShieldCheck className="size-4" /> Rol y permisos…
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuItem
@@ -458,12 +444,16 @@ export function UsersSettings({ rows, me, domain }: { rows: UserRow[]; me: strin
         onOpenChange={setCreating}
         domain={domain}
         onCreated={(email, pw, isShared) => {
-          if (isShared) toast.success(`Buzón común ${email} creado. Asigna quién puede enviar como él.`);
+          if (isShared) toast.success(`Buzón común ${email} creado. Asigna quién lo ve en Buzones comunes.`);
           setPassword({ email, password: pw });
         }}
       />
       <PasswordDialog data={password} onClose={() => setPassword(null)} />
-      <SendAsDialog row={sendAs} sharedBoxes={shared} onClose={() => setSendAs(null)} />
+      <PermissionsDialog
+        person={editing?.access ? { email: editing.username, name: editing.displayName, access: editing.access } : null}
+        roles={roles}
+        onClose={() => setEditing(null)}
+      />
       <DeleteDialog row={deleting} onClose={() => setDeleting(null)} />
     </div>
   );

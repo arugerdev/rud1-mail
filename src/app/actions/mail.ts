@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 
+import { can } from "@/lib/access";
 import { config } from "@/lib/config";
 import { learnContacts } from "@/lib/contacts";
 import { deleteDraftData, getDraftData, saveDraftData, type DraftData, type DraftRecipient } from "@/lib/drafts";
@@ -223,6 +224,9 @@ async function buildOutgoing(
 
 export async function sendAction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
+  if (!can(user.email, "correo.enviar")) {
+    return { ok: false, error: "Tu cuenta no puede enviar correo ahora mismo. Habla con Álvaro o Manuel." };
+  }
   const form = await readComposeForm(formData);
   if (typeof form === "string") return { ok: false, error: form };
   const { draft } = form;

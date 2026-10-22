@@ -2,24 +2,49 @@ import "server-only";
 
 import { redirect } from "next/navigation";
 
+import { can, isOwner } from "@/lib/access";
+import type { PermissionKey } from "@/lib/permissions";
 import { requireUser, type SignedInSession } from "@/lib/session";
 
 /**
- * Quién administra el correo de rud1: crear buzones y direcciones, y definir
- * la cabecera y el pie corporativos. Se configura con ADMIN_EMAILS.
+ * Quién administra el correo de rud1. Los propietarios (ADMIN_EMAILS: Álvaro
+ * y Manuel) lo pueden todo y son los únicos que reparten roles, permisos y
+ * buzones comunes; el resto, lo que le den sus permisos (lib/permissions.ts).
  */
-const ADMINS = (process.env.ADMIN_EMAILS ?? "aruger@rud1.es,mdialop@rud1.es")
-  .split(",")
-  .map((e) => e.trim().toLowerCase())
-  .filter(Boolean);
 
-export function isAdmin(email: string): boolean {
-  return ADMINS.includes(email.toLowerCase());
+export { isOwner };
+
+/** Lo que cada quien ve de Administración. */
+export interface AdminAccess {
+  owner: boolean;
+  mailboxes: boolean;
+  templates: boolean;
 }
 
-/** Para las páginas y acciones de administración: si no es de administración, fuera. */
-export async function requireAdmin(): Promise<SignedInSession> {
+export function adminAccess(email: string): AdminAccess {
+  return {
+    owner: isOwner(email),
+    mailboxes: can(email, "admin.buzones"),
+    templates: can(email, "admin.plantillas"),
+  };
+}
+
+/** ¿Ve el apartado de Administración? */
+export function isAdmin(email: string): boolean {
+  const a = adminAccess(email);
+  return a.owner || a.mailboxes || a.templates;
+}
+
+/** Para páginas: sin el permiso, fuera. */
+export async function requirePermission(permission: PermissionKey): Promise<SignedInSession> {
   const user = await requireUser();
-  if (!isAdmin(user.email)) redirect("/");
+  if (!can(user.email, permission)) redirect("/");
+  return user;
+}
+
+/** Para páginas que solo ven los propietarios (roles, permisos, buzones comunes). */
+export async function requireOwner(): Promise<SignedInSession> {
+  const user = await requireUser();
+  if (!isOwner(user.email)) redirect("/");
   return user;
 }

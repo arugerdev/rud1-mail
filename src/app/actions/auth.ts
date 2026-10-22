@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 
+import { can } from "@/lib/access";
 import { config } from "@/lib/config";
 import { closeConnections, ImapAuthError, verifyCredentials } from "@/lib/imap";
 import { getMailbox, MailcowError, mailcowAvailable, setMailboxPassword } from "@/lib/mailcow";
@@ -43,6 +44,9 @@ export async function signIn(_prev: FormState, formData: FormData): Promise<Form
     return { error: "El servidor de correo no responde. Inténtalo en unos minutos.", email };
   }
   registerSuccess(keys);
+  if (!can(email, "correo.entrar")) {
+    return { error: "Tu cuenta no tiene acceso ahora mismo. Habla con Álvaro o Manuel.", email };
+  }
 
   // Nombre y estado del buzón: sin la API se entra igual, con la dirección
   // como nombre (solo pasa en desarrollo sin túnel).

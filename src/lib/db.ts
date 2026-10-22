@@ -69,6 +69,45 @@ const MIGRATIONS: string[] = [
     updated_at INTEGER NOT NULL
   );
   `,
+  // 4: roles, permisos de cada persona, equipos y quién ve cada buzón común
+  `
+  CREATE TABLE roles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    color TEXT NOT NULL,
+    permissions TEXT NOT NULL,
+    storage_mb INTEGER NOT NULL DEFAULT 0,
+    builtin INTEGER NOT NULL DEFAULT 0,
+    position INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE user_access (
+    email TEXT PRIMARY KEY,
+    role_id TEXT NOT NULL,
+    overrides TEXT NOT NULL DEFAULT '{}',
+    storage_mb INTEGER,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE TABLE teams (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    color TEXT NOT NULL
+  );
+  CREATE TABLE team_members (
+    team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    PRIMARY KEY (team_id, email)
+  );
+  -- subject: "user:<correo>" o "team:<id>"
+  CREATE TABLE shared_grants (
+    owner TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    can_view INTEGER NOT NULL DEFAULT 0,
+    can_send INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (owner, subject)
+  );
+  `,
 ];
 
 function open(): Database.Database {

@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
-import { requireAdmin } from "@/lib/admin";
+import { can } from "@/lib/access";
 import { config } from "@/lib/config";
 import { listMailboxes, mailcowAvailable } from "@/lib/mailcow";
 import { fullName, getProfile } from "@/lib/profiles";
+import { requireUser } from "@/lib/session";
 import { DEFAULT_FOOTER, DEFAULT_HEADER, getOrgTemplates, TEMPLATE_VARIABLES } from "@/lib/templates";
 
 import { TemplatesSettings } from "./templates-settings";
@@ -11,7 +13,9 @@ import { TemplatesSettings } from "./templates-settings";
 export const metadata: Metadata = { title: "Cabecera y pie" };
 
 export default async function TemplatesPage() {
-  const user = await requireAdmin();
+  const user = await requireUser();
+  // "Administración" lleva aquí; quien solo gestiona buzones va a Usuarios.
+  if (!can(user.email, "admin.plantillas")) redirect(can(user.email, "admin.buzones") ? "/ajustes/administracion/usuarios" : "/");
   // Personas del equipo (buzones personales), para ver la vista previa con sus datos.
   const boxes = mailcowAvailable() ? await listMailboxes(config.domain).catch(() => []) : [];
   const people = boxes

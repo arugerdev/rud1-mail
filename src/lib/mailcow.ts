@@ -96,7 +96,12 @@ export const SHARED_TAG = "comun";
 export interface MailboxInfo {
   username: string;
   name: string;
+  /** No está desactivado (puede estar activo o con la entrada bloqueada). */
   active: boolean;
+  /** Recibe correo pero no puede entrar en ningún sitio (Mailcow active = 2). */
+  loginBlocked: boolean;
+  /** Puede enviar (Mailcow smtp_access). */
+  smtpAccess: boolean;
   forcePasswordUpdate: boolean;
   quotaBytes: number;
   usedBytes: number;
@@ -119,7 +124,7 @@ interface RawMailbox {
   tags?: string[];
   last_imap_login?: number | string;
   sender_acl?: string[];
-  attributes?: { force_pw_update?: string | number };
+  attributes?: { force_pw_update?: string | number; smtp_access?: string | number };
 }
 
 function toMailbox(box: RawMailbox & { username: string }): MailboxInfo {
@@ -127,7 +132,9 @@ function toMailbox(box: RawMailbox & { username: string }): MailboxInfo {
   return {
     username: box.username,
     name: box.name || box.username,
-    active: String(box.active_int ?? box.active) === "1",
+    active: String(box.active_int ?? box.active) !== "0",
+    loginBlocked: String(box.active_int ?? box.active) === "2",
+    smtpAccess: String(box.attributes?.smtp_access ?? "1") === "1",
     forcePasswordUpdate: String(box.attributes?.force_pw_update ?? "0") === "1",
     quotaBytes: Number(box.quota ?? 0),
     usedBytes: Number(box.quota_used ?? 0),
@@ -187,10 +194,22 @@ export async function createMailbox(box: NewMailbox): Promise<void> {
 
 export async function editMailbox(
   email: string,
-  attr: Partial<{ active: boolean; name: string; quotaMb: number; password: string; forcePasswordUpdate: boolean; sendAs: string[] }>,
+  attr: Partial<{
+    active: boolean;
+    /** 0 desactivado, 1 activo, 2 recibe pero no puede entrar. Gana a `active`. */
+    activeState: 0 | 1 | 2;
+    smtpAccess: boolean;
+    name: string;
+    quotaMb: number;
+    password: string;
+    forcePasswordUpdate: boolean;
+    sendAs: string[];
+  }>,
 ): Promise<void> {
   const body: Record<string, unknown> = {};
   if (attr.active !== undefined) body.active = attr.active ? "1" : "0";
+  if (attr.activeState !== undefined) body.active = String(attr.activeState);
+  if (attr.smtpAccess !== undefined) body.smtp_access = attr.smtpAccess ? "1" : "0";
   if (attr.name !== undefined) body.name = attr.name;
   if (attr.quotaMb !== undefined) body.quota = String(attr.quotaMb);
   if (attr.password !== undefined) {
@@ -258,4 +277,44 @@ export async function setMailboxPassword(email: string, password: string): Promi
     attr: { password, password2: password, force_pw_update: "0" },
   });
   assertSuccess(results);
+}
+
+// --- Filtros Sieve (para "no recibe correo") ---
+
+export interface SieveFilter {
+  id: number;
+  username: string;
+  type: "prefilter" | "postfilter";
+  description: string;
+  active: boolean;
+}
+
+export async function listFilters(): Promise<SieveFilter[]> {
+  const raw = await request<
+    Array<{ id: number | string; username: string; filter_type: string; script_desc: string; active: number | string }> | Record<string, never>
+  >("GET", "get/filters/all");
+  if (!Array.isArray(raw)) return [];
+  return raw.map((f) => ({
+    id: Number(f.id),
+    username: f.username,
+    type: f.filter_type === "postfilter" ? "postfilter" : "prefilter",
+    description: f.script_desc,
+    active: String(f.active) === "1",
+  }));
+}
+
+export async function addFilter(username: string, description: string, script: string, active: boolean): Promise<void> {
+  assertSuccess(
+    await request<MailcowResult[]>("POST", "add/filter", {
+      username,
+      filter_type: "prefilter",
+      script_desc: description,
+      script_data: script,
+      active: active ? "1" : "0",
+    }),
+  );
+}
+
+export async function setFilterActive(id: number, active: boolean): Promise<void> {
+  assertSuccess(await request<MailcowResult[]>("POST", "edit/filter", { items: [String(id)], attr: { active: active ? "1" : "0" } }));
 }

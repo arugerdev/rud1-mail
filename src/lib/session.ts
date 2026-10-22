@@ -59,6 +59,9 @@ export const currentUser = cache(async (): Promise<SignedInSession | null> => {
   const session = await getSession();
   if (!session.email || !session.password || !session.signedInAt) return null;
   if (Date.now() - session.signedInAt > SESSION_TTL_SECONDS * 1000) return null;
+  // Si administración le ha quitado la entrada, la sesión deja de valer al momento.
+  const { can } = await import("@/lib/access");
+  if (!can(session.email, "correo.entrar")) return null;
   return {
     email: session.email,
     password: session.password,
