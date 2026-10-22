@@ -4,6 +4,7 @@ import { folderSpecialUse, getMessage, listMessages } from "@/lib/mail/messages"
 import { listFolders } from "@/lib/mail/folders";
 import { renderMessage } from "@/lib/mail/render";
 import { getProfile } from "@/lib/profiles";
+import { requestOrigin } from "@/lib/request";
 import { requireUser } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
@@ -19,7 +20,6 @@ interface PageProps {
     pagina?: string;
     buscar?: string;
     mensaje?: string;
-    imagenes?: string;
     contrasena?: string;
   }>;
 }
@@ -48,7 +48,7 @@ export default async function MailPage({ searchParams }: PageProps) {
   const index = detail ? list.items.findIndex((m) => m.uid === detail.uid) : -1;
   const nextUid = prefs.openNext && index >= 0 ? (list.items[index + 1] ?? list.items[index - 1])?.uid ?? null : null;
 
-  const rendered = detail ? renderMessage(detail, { allowRemote: params.imagenes === "1" }) : null;
+  const rendered = detail ? renderMessage(detail, { origin: await requestOrigin() }) : null;
 
   return (
     <>
@@ -82,8 +82,6 @@ export default async function MailPage({ searchParams }: PageProps) {
             // hace falta mandarlos dos veces al navegador.
             detail={{ ...detail, html: null, inlineImages: {} }}
             document={rendered.document}
-            hasRemoteContent={rendered.hasRemoteContent}
-            remoteAllowed={params.imagenes === "1"}
             specialUse={specialUse}
             folders={folders}
             page={page}

@@ -2,6 +2,7 @@ import "server-only";
 
 import sanitizeHtml from "sanitize-html";
 
+import { proxyRemoteImages } from "@/lib/image-proxy";
 import { escapeHtml, linkify } from "@/lib/mail/text";
 import type { MessageDetail } from "@/lib/mail/messages";
 
@@ -12,8 +13,8 @@ import type { MessageDetail } from "@/lib/mail/messages";
  *  1. sanitize-html quita scripts, formularios, marcos y atributos peligrosos.
  *  2. El marco no permite scripts (sandbox sin allow-scripts).
  *  3. El propio documento lleva una política (CSP) que no deja cargar nada de
- *     fuera: ni imágenes de seguimiento ni hojas de estilo remotas, salvo que la
- *     persona pulse "Mostrar imágenes".
+ *     fuera. Las imágenes externas se ven siempre, pero pasan por rud1 Mail
+ *     (lib/image-proxy.ts): el remitente no ve la IP ni el navegador de nadie.
  */
 
 const REMOTE_PATTERN = /(?:src|background)\s*=\s*["']?\s*https?:|url\(\s*["']?\s*https?:/i;
@@ -87,14 +88,18 @@ export interface RenderedMessage {
   hasRemoteContent: boolean;
 }
 
-/** Documento completo para el marco: estilos base y política sin red. */
-export function wrap(body: string, allowRemote: boolean): string {
+/**
+ * Documento completo para el marco: estilos base y política sin red.
+ * `imageOrigin`: el de rud1 Mail, para las imágenes que llegan por el proxy.
+ */
+export function wrap(body: string, allowRemote: boolean, imageOrigin?: string): string {
   const remote = allowRemote ? " https: http:" : "";
+  const own = imageOrigin ? ` ${imageOrigin}` : "";
   const csp = [
     "default-src 'none'",
-    `img-src data:${remote}`,
+    `img-src data:${own}${remote}`,
     `style-src 'unsafe-inline'${remote}`,
-    `font-src data:${remote}`,
+    `font-src data:${own}${remote}`,
   ].join("; ");
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
@@ -109,15 +114,17 @@ export function wrap(body: string, allowRemote: boolean): string {
 </style></head><body>${body}</body></html>`;
 }
 
-export function renderMessage(detail: MessageDetail, { allowRemote = false } = {}): RenderedMessage {
+/** `origin`: el de rud1 Mail tal como lo ve el navegador (https://mail.rud1.es). */
+export function renderMessage(detail: MessageDetail, { origin }: { origin: string }): RenderedMessage {
   if (detail.html) {
     let html = detail.html;
     for (const [cid, dataUri] of Object.entries(detail.inlineImages)) {
       html = html.split(`cid:${cid}`).join(dataUri);
     }
     const clean = sanitizeIncoming(html);
-    return { document: wrap(clean, allowRemote), hasRemoteContent: REMOTE_PATTERN.test(clean) };
+    const hasRemoteContent = REMOTE_PATTERN.test(clean);
+    return { document: wrap(proxyRemoteImages(clean), false, origin), hasRemoteContent };
   }
   const body = `<div style="white-space:pre-wrap">${linkify(escapeHtml(detail.text))}</div>`;
-  return { document: wrap(body, allowRemote), hasRemoteContent: false };
+  return { document: wrap(body, false), hasRemoteContent: false };
 }

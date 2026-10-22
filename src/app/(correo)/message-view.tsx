@@ -86,8 +86,6 @@ function ToolbarButton({
 export function MessageView({
   detail,
   document,
-  hasRemoteContent,
-  remoteAllowed,
   specialUse,
   folders,
   page,
@@ -96,8 +94,6 @@ export function MessageView({
 }: {
   detail: MessageDetail;
   document: string;
-  hasRemoteContent: boolean;
-  remoteAllowed: boolean;
   specialUse: SpecialUse | null;
   folders: Folder[];
   page: number;
@@ -125,9 +121,6 @@ export function MessageView({
       router.refresh();
     }
   }, [detail.wasUnseen, router]);
-
-  // Con `mensaje` la dirección ya lleva parámetros: se añade uno más.
-  const showImagesHref = `${mailHref({ carpeta: folder, pagina: page, buscar: query || undefined, mensaje: detail.uid })}&imagenes=1`;
 
   return (
     <article className="rud1-in flex min-h-0 flex-1 flex-col">
@@ -259,18 +252,6 @@ export function MessageView({
               {detail.bcc.length > 0 && <AddressLine label="CCO:" list={detail.bcc} />}
             </div>
           </div>
-
-          {hasRemoteContent && !remoteAllowed && (
-            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/50 bg-surface-1/60 px-4 py-2.5 text-sm">
-              <ImageOff className="size-4 shrink-0 text-muted-foreground" />
-              <span className="text-muted-foreground">
-                Las imágenes externas están bloqueadas para que el remitente no sepa si lo has abierto.
-              </span>
-              <Link href={showImagesHref} scroll={false} className="font-medium text-primary hover:underline">
-                Mostrar imágenes
-              </Link>
-            </div>
-          )}
 
           <MessageFrame document={document} title={detail.subject || "Mensaje"} />
 
