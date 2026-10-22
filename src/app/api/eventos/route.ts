@@ -104,7 +104,8 @@ export async function GET(request: Request) {
           // Si falla una vuelta, la siguiente lo intenta otra vez.
         }
       };
-      send("listo", { email: user.email });
+      // La versión del servidor: si la pestaña es de otra, se recarga sola (version-reload.ts).
+      send("listo", { email: user.email, version: process.env.NEXT_PUBLIC_BUILD_ID ?? "dev" });
       await counts();
       timers.push(setInterval(() => send("latido", Date.now()), HEARTBEAT_MS));
       timers.push(setInterval(counts, COUNTS_MS));

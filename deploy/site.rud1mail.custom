@@ -7,10 +7,12 @@
 # expresión que no choca con las de Mailcow. Lo demás sigue siendo de Mailcow:
 # la API (/api/v1), Autodiscover, autoconfig…
 #
-# IP fija del contenedor (deploy/docker-compose.yml): si no está en marcha, da
-# 502 en estas rutas pero Nginx (y el resto del correo) arranca igual.
+# A qué copia de rud1 Mail van las peticiones (a o b, deploy/docker-compose.yml):
+# lo escribe deploy/desplegar.sh en rud1mail.destino al cambiar de una a otra.
+# Si no está en marcha, da 502 en estas rutas pero Nginx (y el resto del
+# correo) arranca igual.
 
-set $rud1mail http://172.22.1.240:3100;
+include /etc/nginx/conf.d/rud1mail.destino;
 
 # Paneles de Mailcow cerrados a internet. Solo se llega por un túnel SSH al
 # propio servidor (ssh -L 9443:127.0.0.1:443), que Nginx ve como 172.22.1.1.

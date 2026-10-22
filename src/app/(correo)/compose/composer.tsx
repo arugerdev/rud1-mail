@@ -284,6 +284,7 @@ export function Composer({
             send();
           }
         }}
+        data-rud1-composer=""
         onDragOver={(e) => {
           if (e.dataTransfer.types.includes("Files")) {
             e.preventDefault();

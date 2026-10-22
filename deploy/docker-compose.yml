@@ -4,40 +4,54 @@
 # Postfix y la API sin salir a internet, y Mailcow puede reconocerla
 # (API_ALLOW_FROM, redes de confianza de Dovecot). Nginx de Mailcow le pasa
 # las peticiones de mail.rud1.es (ver site.rud1mail.custom).
+#
+# Dos copias que se turnan (a y b): al desplegar, la nueva arranca junto a la
+# que está sirviendo y Nginx solo pasa a ella cuando ya responde. Así nunca
+# hay un momento sin servicio (ver deploy/desplegar.sh). Las imágenes las
+# construye el script (rud1-mail:a / rud1-mail:b).
 
 name: rud1-mail
 
+x-app: &app
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    MAIL_DOMAIN: rud1.es
+    IMAP_HOST: dovecot
+    IMAP_PORT: "993"
+    SMTP_HOST: postfix
+    SMTP_PORT: "587"
+    MAIL_TLS_SERVERNAME: mail.rud1.es
+    MAILCOW_API_URL: https://nginx/api/v1
+    # Contenido de Archivos (lib/storage.ts), aparte de la base de datos.
+    FILES_DIR: /files
+  volumes:
+    - rud1-mail-data:/data
+    - rud1-mail-files:/files
+  # Sin puertos publicados: solo se llega a través del Nginx de Mailcow.
+  mem_limit: 1g
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
 services:
-  rud1-mail:
-    build:
-      context: ./app
-    image: rud1-mail:latest
-    container_name: rud1-mail
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      MAIL_DOMAIN: rud1.es
-      IMAP_HOST: dovecot
-      IMAP_PORT: "993"
-      SMTP_HOST: postfix
-      SMTP_PORT: "587"
-      MAIL_TLS_SERVERNAME: mail.rud1.es
-      MAILCOW_API_URL: https://nginx/api/v1
-      # Contenido de Archivos (lib/storage.ts), aparte de la base de datos.
-      FILES_DIR: /files
-    volumes:
-      - rud1-mail-data:/data
-      - rud1-mail-files:/files
+  rud1-mail-a:
+    <<: *app
+    image: rud1-mail:a
+    container_name: rud1-mail-a
     networks:
       mailcow:
         ipv4_address: 172.22.1.240
-    # Sin puertos publicados: solo se llega a través del Nginx de Mailcow.
-    mem_limit: 1g
-    logging:
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: "3"
+
+  rud1-mail-b:
+    <<: *app
+    image: rud1-mail:b
+    container_name: rud1-mail-b
+    networks:
+      mailcow:
+        ipv4_address: 172.22.1.241
 
 volumes:
   rud1-mail-data:

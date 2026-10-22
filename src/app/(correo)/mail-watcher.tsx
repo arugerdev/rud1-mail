@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { setAppBadge } from "../pwa";
 import { desktopBridge } from "./desktop-bridge";
 import { useSounds } from "./sound-provider";
+import { onServerVersion } from "./version-reload";
 import { mailHref } from "./nav";
 
 interface NewMail {
@@ -95,7 +96,8 @@ export function useMailWatcher(prefs: WatcherPrefs, sharedNames: Record<string, 
       if (stopped) return;
       setState("conectando");
       source = new EventSource("/api/eventos");
-      source.addEventListener("listo", () => {
+      source.addEventListener("listo", (event) => {
+        onServerVersion((JSON.parse((event as MessageEvent).data) as { version?: string }).version);
         setState("en-directo");
         window.clearInterval(fallback);
       });
