@@ -87,6 +87,17 @@ Mailcow preparado: API abierta a esa IP, Dovecot recibe la IP real de quien
 entra (para que los bloqueos vayan al atacante) y el cortafuegos no bloquea
 nunca a rud1 Mail.
 
+### Paneles de Mailcow
+
+Cerrados a internet (`deploy/site.rud1mail.custom`): `/admin` y ActiveSync
+devuelven 404 y SOGo está desactivado (`SKIP_SOGO=y`). Para entrar en la
+administración de Mailcow, por túnel SSH:
+
+```bash
+ssh -i ~/.ssh/rud1-mail -N -L 9443:127.0.0.1:443 debian@51.83.131.131
+# y en el navegador: https://localhost:9443/admin/ (avisará del certificado)
+```
+
 No usar Vercel: la API de Mailcow solo responde desde el propio servidor, los
 adjuntos pasan de su límite y las IP compartidas acabarían bloqueadas.
 

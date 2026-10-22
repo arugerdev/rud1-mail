@@ -12,6 +12,22 @@
 
 set $rud1mail http://172.22.1.240:3100;
 
+# Paneles de Mailcow cerrados a internet. Solo se llega por un túnel SSH al
+# propio servidor (ssh -L 9443:127.0.0.1:443), que Nginx ve como 172.22.1.1.
+# Los bots ya prueban /admin y exploits genéricos de PHP: lo que no se usa a
+# diario no se deja expuesto. Va a nivel de servidor (antes de elegir location)
+# y sobre $uri ya normalizada, así que no se esquiva con %61dmin ni con //.
+set $rud1_cerrado "";
+if ($uri ~* ^/(admin|SOGo|Microsoft-Server-ActiveSync)(/|$)) {
+    set $rud1_cerrado "1";
+}
+if ($remote_addr = "172.22.1.1") {
+    set $rud1_cerrado "";
+}
+if ($rud1_cerrado) {
+    return 404;
+}
+
 location = / {
     include /etc/nginx/conf.d/rud1mail.proxy;
 }

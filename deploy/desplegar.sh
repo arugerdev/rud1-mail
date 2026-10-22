@@ -65,6 +65,13 @@ if ! grep -qs "login_trusted_networks.*$APP_IP" "$EXTRA"; then
   echo "   Dovecot: rud1 Mail como red de confianza"
 fi
 
+# 3b. Sin SOGo: no se usa (rud1 Mail es el webmail) y es superficie de ataque.
+if ! grep -q "^SKIP_SOGO=y" mailcow.conf; then
+  sed -i "s/^SKIP_SOGO=.*/SKIP_SOGO=y/" mailcow.conf
+  RESTART_MAILCOW=1
+  echo "   SOGo desactivado"
+fi
+
 if [ "$RESTART_MAILCOW" = 1 ]; then
   docker compose up -d >/dev/null 2>&1
 fi
