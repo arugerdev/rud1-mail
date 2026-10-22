@@ -68,6 +68,28 @@ Para probar hay un buzón `prueba@rud1.es` (su contraseña está en
 
 Comprobaciones: `npm run typecheck`, `npm run lint`, `npm test`.
 
+## Despliegue (mail.rud1.es)
+
+rud1 Mail corre en el servidor de correo (VPS de OVH), en un contenedor dentro
+de la red interna de Mailcow (IP fija `172.22.1.240`). El Nginx de Mailcow le
+pasa solo sus rutas (`deploy/site.rud1mail.custom`); Mailcow sigue sirviendo
+`/admin` (administración), `/domainadmin`, `/SOGo`, la API, Autodiscover y
+ActiveSync.
+
+```bash
+bash deploy/desplegar.sh     # despliega el último commit de la rama actual
+```
+
+El script copia el código, construye la imagen en el servidor, arranca el
+contenedor y recarga Nginx (comprobando antes la configuración). La primera
+vez crea `/opt/rud1-mail/.env` (clave de sesión y clave de la API) y deja a
+Mailcow preparado: API abierta a esa IP, Dovecot recibe la IP real de quien
+entra (para que los bloqueos vayan al atacante) y el cortafuegos no bloquea
+nunca a rud1 Mail.
+
+No usar Vercel: la API de Mailcow solo responde desde el propio servidor, los
+adjuntos pasan de su límite y las IP compartidas acabarían bloqueadas.
+
 ## Seguridad
 
 - La sesión va en una cookie cifrada (iron-session) que caduca a las 12 horas.
