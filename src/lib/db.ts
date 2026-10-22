@@ -108,6 +108,42 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (owner, subject)
   );
   `,
+  // 5: archivos compartidos (el contenido va en el almacén: lib/storage.ts)
+  `
+  CREATE TABLE files (
+    id TEXT PRIMARY KEY,
+    owner TEXT NOT NULL,
+    parent_id TEXT REFERENCES files(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('file', 'folder')),
+    size INTEGER NOT NULL DEFAULT 0,
+    mime TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    trashed_at INTEGER
+  );
+  CREATE INDEX files_parent ON files(parent_id);
+  CREATE INDEX files_owner ON files(owner);
+  -- subject: "user:<correo>" o "team:<id>"
+  CREATE TABLE file_shares (
+    file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    subject TEXT NOT NULL,
+    can_edit INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (file_id, subject)
+  );
+  CREATE TABLE file_links (
+    token TEXT PRIMARY KEY,
+    file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER,
+    password_hash TEXT,
+    downloads INTEGER NOT NULL DEFAULT 0,
+    disabled INTEGER NOT NULL DEFAULT 0
+  );
+  `,
 ];
 
 function open(): Database.Database {

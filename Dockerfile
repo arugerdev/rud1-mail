@@ -26,7 +26,7 @@ COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/public ./public
 # Base de datos propia (perfiles, firmas, plantillas, contactos): va en un volumen.
-RUN mkdir -p /data && chown node:node /data
+RUN mkdir -p /data /files && chown node:node /data /files
 USER node
 EXPOSE 3100
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

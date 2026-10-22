@@ -1,3 +1,4 @@
+import { can } from "@/lib/access";
 import { isAdmin } from "@/lib/admin";
 import { teamDirectory } from "@/lib/contacts";
 import { listFolders } from "@/lib/mail/folders";
@@ -42,6 +43,7 @@ export default async function MailLayout({ children }: { children: React.ReactNo
             folders={folders}
             prefs={{ notify: profile.prefs.notify }}
             isAdmin={isAdmin(user.email)}
+            apps={{ files: can(user.email, "archivos.usar") }}
             sharedNames={sharedNames}
           >
             {children}

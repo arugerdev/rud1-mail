@@ -23,8 +23,11 @@ services:
       SMTP_PORT: "587"
       MAIL_TLS_SERVERNAME: mail.rud1.es
       MAILCOW_API_URL: https://nginx/api/v1
+      # Contenido de Archivos (lib/storage.ts), aparte de la base de datos.
+      FILES_DIR: /files
     volumes:
       - rud1-mail-data:/data
+      - rud1-mail-files:/files
     networks:
       mailcow:
         ipv4_address: 172.22.1.240
@@ -38,6 +41,7 @@ services:
 
 volumes:
   rud1-mail-data:
+  rud1-mail-files:
 
 networks:
   mailcow:

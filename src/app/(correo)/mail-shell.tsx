@@ -11,6 +11,7 @@ import {
   Download,
   FileText,
   Folder as FolderIcon,
+  HardDrive,
   Inbox,
   KeyRound,
   LogOut,
@@ -307,11 +308,16 @@ function AccountMenu({ user }: { user: ShellUser }) {
   );
 }
 
+export interface ShellApps {
+  files: boolean;
+}
+
 function SidebarBody({
   user,
   folders,
   current,
   isAdmin,
+  apps,
   pathname,
   sharedNames,
 }: {
@@ -319,6 +325,7 @@ function SidebarBody({
   folders: Folder[];
   current: string | null;
   isAdmin: boolean;
+  apps: ShellApps;
   pathname: string;
   sharedNames: Record<string, string>;
 }) {
@@ -340,6 +347,15 @@ function SidebarBody({
       </div>
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-2">
         <FolderNav folders={folders} current={current} sharedNames={sharedNames} />
+        {apps.files && (
+          <nav className="space-y-0.5" aria-label="Espacio de trabajo">
+            <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">Trabajo</p>
+            <Link href="/archivos" className={navClass(pathname.startsWith("/archivos"))}>
+              <HardDrive className="size-4 shrink-0" />
+              <span className="truncate">Archivos</span>
+            </Link>
+          </nav>
+        )}
         <nav className="space-y-0.5" aria-label="Ajustes">
           <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">Ajustes</p>
           <Link href="/ajustes" className={navClass(pathname === "/ajustes")}>
@@ -511,6 +527,7 @@ export function MailShell({
   folders,
   prefs,
   isAdmin,
+  apps,
   sharedNames,
   children,
 }: {
@@ -518,13 +535,16 @@ export function MailShell({
   folders: Folder[];
   prefs: WatcherPrefs;
   isAdmin: boolean;
+  apps: ShellApps;
   sharedNames: Record<string, string>;
   children: React.ReactNode;
 }) {
   const params = useSearchParams();
   const pathname = usePathname();
   const router = useRouter();
-  const inSettings = pathname.startsWith("/ajustes");
+  // Ajustes y Archivos no son carpetas de correo: llevan su título en vez del buscador.
+  const section = pathname.startsWith("/ajustes") ? "Ajustes" : pathname.startsWith("/archivos") ? "Archivos" : null;
+  const inSettings = section !== null;
   const current = inSettings ? null : params.get("carpeta") ?? "INBOX";
   const currentFolder = folders.find((f) => f.path === (current ?? "INBOX"));
   // En un buzón común, el nombre del buzón delante: "Rud1 Support · Enviados".
@@ -545,13 +565,13 @@ export function MailShell({
   const inbox = folders.find((f) => f.specialUse === "inbox" && !f.owner);
   React.useEffect(() => {
     const unread = inbox?.unread ?? 0;
-    const place = inSettings ? "Ajustes" : folderName;
+    const place = section ?? folderName;
     document.title = unread > 0 ? `(${unread}) ${place} · rud1 Mail` : `${place} · rud1 Mail`;
     setAppBadge(unread);
-  }, [inbox?.unread, folderName, inSettings]);
+  }, [inbox?.unread, folderName, section]);
 
   const body = (
-    <SidebarBody user={user} folders={folders} current={current} isAdmin={isAdmin} pathname={pathname} sharedNames={sharedNames} />
+    <SidebarBody user={user} folders={folders} current={current} isAdmin={isAdmin} apps={apps} pathname={pathname} sharedNames={sharedNames} />
   );
 
   return (
@@ -570,7 +590,7 @@ export function MailShell({
             <Menu className="size-5" />
           </Button>
           {inSettings ? (
-            <h1 className="truncate text-sm font-semibold">Ajustes</h1>
+            <h1 className="truncate text-sm font-semibold">{section}</h1>
           ) : (
             <SearchBox folder={current ?? "INBOX"} folderName={folderName} />
           )}

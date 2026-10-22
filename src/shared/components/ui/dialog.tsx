@@ -6,7 +6,24 @@ import { X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-const Dialog = DialogPrimitive.Root;
+/**
+ * Raíz del diálogo. Si se abre desde un menú desplegable (las acciones "⋯"),
+ * Radix puede dejar el cuerpo de la página sin clics al cerrarlo (copia el
+ * "pointer-events: none" del menú): al cerrar, si no queda otro diálogo, se
+ * devuelven los clics.
+ */
+function Dialog({ onOpenChange, open, ...props }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Root>) {
+  React.useEffect(() => {
+    if (open !== false) return;
+    const timer = window.setTimeout(() => {
+      if (!document.querySelector('[role="dialog"][data-state="open"], [role="menu"][data-state="open"]')) {
+        document.body.style.pointerEvents = "";
+      }
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [open]);
+  return <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} {...props} />;
+}
 const DialogTrigger = DialogPrimitive.Trigger;
 const DialogPortal = DialogPrimitive.Portal;
 const DialogClose = DialogPrimitive.Close;
