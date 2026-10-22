@@ -30,9 +30,9 @@ function desktopBridge(): DesktopBridge | undefined {
   return (window as Window & { rud1Desktop?: DesktopBridge }).rud1Desktop;
 }
 
-async function notify(mail: NewMail, open: (url: string) => void) {
-  const title = mail.from ? `Correo de ${mail.from}` : "Correo nuevo";
-  const url = mail.uid ? mailHref({ mensaje: mail.uid }) : "/";
+async function notify(mail: NewMail, open: (url: string) => void, override?: { title: string; url: string }) {
+  const title = override?.title ?? (mail.from ? `Correo de ${mail.from}` : "Correo nuevo");
+  const url = override?.url ?? (mail.uid ? mailHref({ mensaje: mail.uid }) : "/");
   const options: NotificationOptions = {
     body: mail.subject,
     icon: "/icon-192.png",
@@ -88,11 +88,13 @@ export type LiveState = "conectando" | "en-directo" | "sin-conexion";
  * de la app y avisa del correo nuevo. Si el canal se cae, se reconecta solo
  * (y mientras tanto pregunta cada minuto).
  */
-export function useMailWatcher(prefs: WatcherPrefs): LiveState {
+export function useMailWatcher(prefs: WatcherPrefs, sharedNames: Record<string, string> = {}): LiveState {
   const router = useRouter();
   const [state, setState] = React.useState<LiveState>("conectando");
   const prefsRef = React.useRef(prefs);
   prefsRef.current = prefs;
+  const namesRef = React.useRef(sharedNames);
+  namesRef.current = sharedNames;
 
   React.useEffect(() => {
     let source: EventSource | null = null;
@@ -100,6 +102,8 @@ export function useMailWatcher(prefs: WatcherPrefs): LiveState {
     let fallback: number | undefined;
     let refreshTimer: number | undefined;
     let lastCounts = "";
+    // Sin leer de cada buzón común la última vez: si sube, ha llegado correo ahí.
+    let sharedUnread: Record<string, number> | null = null;
     let stopped = false;
 
     // Varios cambios seguidos (p. ej. marcar diez como leídos) = una sola recarga.
@@ -135,6 +139,27 @@ export function useMailWatcher(prefs: WatcherPrefs): LiveState {
         const raw = (event as MessageEvent).data as string;
         const counts = JSON.parse(raw) as Counts;
         setAppBadge(counts.INBOX?.unread ?? 0);
+
+        const nowShared: Record<string, number> = {};
+        for (const [path, c] of Object.entries(counts)) {
+          if (/^Shared\/[^/]+\/INBOX$/.test(path)) nowShared[path] = c.unread;
+        }
+        if (sharedUnread) {
+          for (const [path, unread] of Object.entries(nowShared)) {
+            if (unread <= (sharedUnread[path] ?? 0)) continue;
+            const owner = path.split("/")[1];
+            const name = namesRef.current[owner] ?? owner;
+            const away = document.visibilityState !== "visible" || !document.hasFocus();
+            if (prefsRef.current.sound) chime();
+            if (away && prefsRef.current.notify && "Notification" in window && Notification.permission === "granted") {
+              void notify({ uid: null, from: "", address: "", subject: `Ha llegado correo a ${owner}` }, (url) => router.push(url), {
+                title: `Correo nuevo en ${name}`,
+                url: mailHref({ carpeta: path }),
+              }).catch(() => undefined);
+            }
+          }
+        }
+        sharedUnread = nowShared;
         if (lastCounts && raw !== lastCounts) refreshSoon();
         lastCounts = raw;
       });

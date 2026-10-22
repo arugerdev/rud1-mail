@@ -16,9 +16,16 @@ export type ComposeRequest =
 
 export type ComposeMode = "new" | "reply" | "replyAll" | "forward";
 
+export interface Identity {
+  address: string;
+  name: string;
+}
+
 export interface ComposeState {
   /** Cambia en cada apertura para que el redactor empiece de cero. */
   key: number;
+  /** Dirección desde la que se envía (la propia o un buzón común permitido). */
+  from: string;
   /** Con qué se monta el mensaje (cita, cabecera…). Un borrador conserva el suyo. */
   mode: ComposeMode;
   title: string;
@@ -89,9 +96,17 @@ function shortDate(iso: string | null): string {
 
 let counter = 0;
 
-function stateFor(request: ComposeRequest, userEmail: string): ComposeState {
+/** Buzón común de una carpeta "Shared/<buzón>/…", si lo es. */
+function ownerOf(folder: string): string | null {
+  const m = folder.match(/^Shared\/([^/]+)\//);
+  return m ? m[1].toLowerCase() : null;
+}
+
+function stateFor(request: ComposeRequest, userEmail: string, identities: Identity[]): ComposeState {
+  const allowed = new Set(identities.map((i) => i.address));
   const base = {
     key: ++counter,
+    from: userEmail,
     to: [] as Recipient[],
     cc: [] as Recipient[],
     bcc: [] as Recipient[],
@@ -127,6 +142,7 @@ function stateFor(request: ComposeRequest, userEmail: string): ComposeState {
       ...base,
       mode: d.mode,
       title: "Borrador",
+      from: d.from && allowed.has(d.from) ? d.from : userEmail,
       to: d.to,
       cc: d.cc,
       bcc: d.bcc,
@@ -147,6 +163,9 @@ function stateFor(request: ComposeRequest, userEmail: string): ComposeState {
   const who = src.from ? src.from.name || src.from.address : "alguien";
   const quoteSummary = `${who} · ${shortDate(src.date)} · ${src.subject || "(sin asunto)"}`;
   const source = { folder: src.folder, uid: src.uid };
+  // Si se responde desde un buzón común y se puede enviar como él, sale desde él.
+  const sharedOwner = ownerOf(src.folder);
+  const from = sharedOwner && allowed.has(sharedOwner) ? sharedOwner : userEmail;
   const threading = {
     inReplyTo: src.messageId,
     references: [...src.references, ...(src.messageId ? [src.messageId] : [])],
@@ -157,6 +176,7 @@ function stateFor(request: ComposeRequest, userEmail: string): ComposeState {
       ...base,
       mode: "forward",
       title: "Reenviar",
+      from,
       subject: forwardSubject(src.subject),
       source,
       quoteSummary,
@@ -175,6 +195,7 @@ function stateFor(request: ComposeRequest, userEmail: string): ComposeState {
       ...threading,
       mode: "reply",
       title: "Responder",
+      from,
       to: uniqueExcept(replyTarget, []),
       subject: replySubject(src.subject),
       source,
@@ -182,17 +203,19 @@ function stateFor(request: ComposeRequest, userEmail: string): ComposeState {
     };
   }
 
-  // Responder a todos: el remitente y todos los destinatarios, menos uno mismo.
-  const to = uniqueExcept([...replyTarget, ...src.to.map((a) => ({ address: a.address, name: a.name }))], [userEmail]);
+  // Responder a todos: el remitente y todos los destinatarios, menos uno mismo (y el buzón común desde el que se responde).
+  const me = [userEmail, from];
+  const to = uniqueExcept([...replyTarget, ...src.to.map((a) => ({ address: a.address, name: a.name }))], me);
   const cc = uniqueExcept(
     src.cc.map((a) => ({ address: a.address, name: a.name })),
-    [userEmail, ...to.map((a) => a.address)],
+    [...me, ...to.map((a) => a.address)],
   );
   return {
     ...base,
     ...threading,
     mode: "replyAll",
     title: "Responder a todos",
+    from,
     to,
     cc,
     subject: replySubject(src.subject),
@@ -201,7 +224,15 @@ function stateFor(request: ComposeRequest, userEmail: string): ComposeState {
   };
 }
 
-export function ComposeProvider({ userEmail, children }: { userEmail: string; children: React.ReactNode }) {
+export function ComposeProvider({
+  userEmail,
+  identities,
+  children,
+}: {
+  userEmail: string;
+  identities: Identity[];
+  children: React.ReactNode;
+}) {
   const [state, setState] = React.useState<ComposeState | null>(null);
   const dirtyRef = React.useRef(false);
 
@@ -211,9 +242,9 @@ export function ComposeProvider({ userEmail, children }: { userEmail: string; ch
         return;
       }
       dirtyRef.current = false;
-      setState(stateFor(request, userEmail));
+      setState(stateFor(request, userEmail, identities));
     },
-    [state, userEmail],
+    [state, userEmail, identities],
   );
 
   const value = React.useMemo(() => ({ open }), [open]);
@@ -225,6 +256,7 @@ export function ComposeProvider({ userEmail, children }: { userEmail: string; ch
         <Composer
           key={state.key}
           initial={state}
+          identities={identities}
           onDirtyChange={(dirty) => {
             dirtyRef.current = dirty;
           }}

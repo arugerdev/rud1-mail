@@ -27,6 +27,7 @@ import {
   type OutgoingMessage,
 } from "@/lib/mail/send";
 import { escapeHtml, isValidEmail } from "@/lib/mail/text";
+import { getMailbox, mailcowAvailable } from "@/lib/mailcow";
 import { requireUser, type SignedInSession } from "@/lib/session";
 
 export interface ActionResult {
@@ -158,6 +159,7 @@ async function readComposeForm(formData: FormData): Promise<ComposeForm | string
 
   return {
     draft: {
+      from: String(formData.get("from") ?? "").trim().toLowerCase() || undefined,
       to,
       cc,
       bcc,
@@ -176,12 +178,27 @@ async function readComposeForm(formData: FormData): Promise<ComposeForm | string
   };
 }
 
+/**
+ * Comprueba desde qué dirección se puede enviar: la propia o un buzón común
+ * con permiso ("Enviar como", en Mailcow). Devuelve dirección y nombre.
+ */
+async function resolveSender(user: SignedInSession, from: string | undefined): Promise<{ address: string; name: string } | string> {
+  if (!from || from === user.email) return { address: user.email, name: user.name };
+  if (!mailcowAvailable()) return "No se puede comprobar el remitente ahora mismo.";
+  const box = await getMailbox(user.email);
+  if (!box?.sendAs.includes(from)) return `No tienes permiso para enviar como ${from}.`;
+  const shared = await getMailbox(from).catch(() => null);
+  return { address: from, name: shared?.name ?? from };
+}
+
 async function buildOutgoing(
   user: SignedInSession,
   form: ComposeForm,
   messageId?: string,
-): Promise<OutgoingMessage> {
+): Promise<OutgoingMessage | string> {
   const { draft } = form;
+  const sender = await resolveSender(user, draft.from);
+  if (typeof sender === "string") return sender;
   const { html, text } = await composeMessage(user, {
     bodyHtml: draft.bodyHtml,
     mode: draft.mode,
@@ -189,7 +206,8 @@ async function buildOutgoing(
     includeQuote: draft.includeQuote,
   });
   return {
-    fromName: user.name,
+    fromName: sender.name,
+    ...(sender.address !== user.email ? { fromAddress: sender.address } : {}),
     to: draft.to,
     cc: draft.cc,
     bcc: draft.bcc,
@@ -215,6 +233,7 @@ export async function sendAction(formData: FormData): Promise<ActionResult> {
 
   try {
     const message = await buildOutgoing(user, form);
+    if (typeof message === "string") return { ok: false, error: message };
     // Al reenviar, los adjuntos del original viajan con el mensaje.
     if (draft.mode === "forward" && draft.source && draft.keepAttachments) {
       message.attachments.unshift(...(await getAllAttachments(user, draft.source.folder, draft.source.uid)));
@@ -247,6 +266,7 @@ export async function saveDraftAction(
     // Mismo Message-ID en cada guardado: así se reencuentran sus datos al reabrirlo.
     const messageId = form.draftMessageId ?? `<${randomUUID()}@${config.domain}>`;
     const message = await buildOutgoing(user, form, messageId);
+    if (typeof message === "string") return { ok: false, error: message };
     const { uid } = await saveDraft(user, message, form.draftUid);
     saveDraftData(user.email, messageId, form.draft);
     revalidatePath("/", "layout");

@@ -1,11 +1,13 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
+
 import nodemailer from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer";
 
 import { config } from "@/lib/config";
 import { withImap, withMailbox, type Credentials } from "@/lib/imap";
-import { specialFolderPath } from "@/lib/mail/folders";
+import { specialFolderFor, specialFolderPath } from "@/lib/mail/folders";
 import type { AddressLike } from "@/lib/mail/text";
 
 export interface OutgoingAttachment {
@@ -16,6 +18,8 @@ export interface OutgoingAttachment {
 
 export interface OutgoingMessage {
   fromName: string;
+  /** Si se envía como un buzón común; si no, la dirección propia. */
+  fromAddress?: string;
   to: AddressLike[];
   cc: AddressLike[];
   bcc: AddressLike[];
@@ -32,14 +36,16 @@ export interface OutgoingMessage {
 
 function composerOptions(from: Credentials & { name: string }, msg: OutgoingMessage) {
   return {
-    from: { name: from.name, address: from.email },
+    from: { name: from.name, address: msg.fromAddress ?? from.email },
     to: msg.to,
     cc: msg.cc,
     bcc: msg.bcc,
     subject: msg.subject,
     text: msg.text,
     html: msg.html,
-    ...(msg.messageId ? { messageId: msg.messageId } : {}),
+    // Siempre un Message-ID propio: el mismo en lo que viaja y en la copia de
+    // Enviados (si no, Postfix pone otro y las conversaciones no casan).
+    messageId: msg.messageId ?? `<${randomUUID()}@${config.domain}>`,
     attachments: msg.attachments.map((a) => ({
       filename: a.filename,
       contentType: a.contentType,
@@ -95,7 +101,8 @@ export async function sendMessage(
 
   const raw = await build(options, false);
   const info = await transport(credentials).sendMail({
-    envelope: { from: credentials.email, to: recipients },
+    // Postfix comprueba que esta cuenta puede enviar como esa dirección.
+    envelope: { from: msg.fromAddress ?? credentials.email, to: recipients },
     raw,
   });
   const rejected = ((info.rejected ?? []) as Array<string | { address: string }>).map((r) =>
@@ -107,13 +114,17 @@ export async function sendMessage(
 
   // La copia de Enviados sí lleva las copias ocultas: es del propio remitente.
   const copy = msg.bcc.length > 0 ? await build(options, true) : raw;
+  // La copia va a Enviados del buzón desde el que sale: si es un buzón
+  // común, a su Enviados (así lo ve todo el equipo que lo comparte).
   await withImap(credentials, async (client) => {
-    const sent = await specialFolderPath(client, "sent");
+    const shared = msg.fromAddress && msg.fromAddress !== credentials.email ? msg.fromAddress : null;
+    const sent = shared
+      ? ((await specialFolderFor(client, `Shared/${shared}/INBOX`, "sent")) ?? (await specialFolderPath(client, "sent")))
+      : await specialFolderPath(client, "sent");
     if (sent) await client.append(sent, copy, ["\\Seen"]);
   });
 
-  const messageId = raw.toString("utf8", 0, Math.min(raw.length, 8192)).match(/^Message-ID:\s*(<[^>]+>)/im)?.[1] ?? null;
-  return { messageId };
+  return { messageId: options.messageId };
 }
 
 /** Guarda (o sustituye) un borrador en la carpeta Borradores. */

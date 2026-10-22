@@ -7,6 +7,7 @@ import {
   Archive,
   Bell,
   BellOff,
+  ChevronRight,
   Download,
   FileText,
   Folder as FolderIcon,
@@ -83,45 +84,140 @@ const navClass = (active: boolean) =>
       : "text-muted-foreground hover:bg-surface-1/50 hover:text-foreground",
   );
 
-function FolderNav({ folders, current }: { folders: Folder[]; current: string | null }) {
+function FolderLink({ folder, active, indent = 0 }: { folder: Folder; active: boolean; indent?: number }) {
+  const Icon = folder.specialUse ? FOLDER_ICONS[folder.specialUse] : FolderIcon;
+  const count = folderCount(folder);
   return (
-    <nav className="space-y-0.5" aria-label="Carpetas">
-      <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">Carpetas</p>
-      {folders.map((folder) => {
-        const Icon = folder.specialUse ? FOLDER_ICONS[folder.specialUse] : FolderIcon;
-        const active = folder.path === current;
-        const count = folderCount(folder);
-        return (
-          <Link
-            key={folder.path}
-            href={mailHref({ carpeta: folder.path })}
-            aria-current={active ? "page" : undefined}
-            className={navClass(active)}
-            style={folder.depth > 0 ? { paddingLeft: `${0.625 + folder.depth * 0.75}rem` } : undefined}
-          >
-            <Icon
-              className={cn(
-                "size-4 shrink-0 transition-transform group-hover:scale-110",
-                active ? "text-primary-foreground dark:text-primary" : "text-muted-foreground group-hover:text-foreground",
-              )}
-            />
-            <span className="truncate">{folder.name}</span>
-            {count > 0 && (
-              <span
-                // La cifra "salta" cada vez que cambia.
-                key={count}
-                className={cn(
-                  "rud1-pop ml-auto rounded-md px-1.5 text-xs tabular-nums",
-                  folder.specialUse === "inbox" ? "bg-primary/15 font-semibold text-primary" : "text-muted-foreground",
-                )}
-              >
-                {count > 999 ? "999+" : count}
+    <Link
+      href={mailHref({ carpeta: folder.path })}
+      aria-current={active ? "page" : undefined}
+      className={navClass(active)}
+      style={indent > 0 ? { paddingLeft: `${0.625 + indent * 0.75}rem` } : undefined}
+    >
+      <Icon
+        className={cn(
+          "size-4 shrink-0 transition-transform group-hover:scale-110",
+          active ? "text-primary-foreground dark:text-primary" : "text-muted-foreground group-hover:text-foreground",
+        )}
+      />
+      <span className="truncate">{folder.name}</span>
+      {count > 0 && (
+        <span
+          // La cifra "salta" cada vez que cambia.
+          key={count}
+          className={cn(
+            "rud1-pop ml-auto rounded-md px-1.5 text-xs tabular-nums",
+            folder.specialUse === "inbox" ? "bg-primary/15 font-semibold text-primary" : "text-muted-foreground",
+          )}
+        >
+          {count > 999 ? "999+" : count}
+        </span>
+      )}
+    </Link>
+  );
+}
+
+/** Un buzón común: su bandeja (con contador) y, desplegadas, sus demás carpetas. */
+function SharedMailbox({
+  owner,
+  name,
+  folders,
+  current,
+}: {
+  owner: string;
+  name: string;
+  folders: Folder[];
+  current: string | null;
+}) {
+  const inbox = folders.find((f) => f.specialUse === "inbox");
+  const rest = folders.filter((f) => f !== inbox);
+  const containsCurrent = folders.some((f) => f.path === current);
+  const storageKey = `rud1mail:comun:${owner}`;
+  const [open, setOpen] = React.useState(containsCurrent);
+  React.useEffect(() => {
+    try {
+      if (localStorage.getItem(storageKey) === "1") setOpen(true);
+    } catch {
+      // sin almacenamiento: plegado
+    }
+  }, [storageKey]);
+  React.useEffect(() => {
+    if (containsCurrent && current !== inbox?.path) setOpen(true);
+  }, [containsCurrent, current, inbox?.path]);
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    try {
+      localStorage.setItem(storageKey, next ? "1" : "0");
+    } catch {
+      // nada
+    }
+  };
+  const unread = inbox?.unread ?? 0;
+  const active = inbox ? inbox.path === current : false;
+
+  return (
+    <div>
+      <div className="flex items-center">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label={open ? `Plegar ${owner}` : `Desplegar ${owner}`}
+          className="rounded p-1 text-muted-foreground hover:text-foreground"
+        >
+          <ChevronRight className={cn("size-3.5 transition-transform", open && "rotate-90")} />
+        </button>
+        {inbox ? (
+          <Link href={mailHref({ carpeta: inbox.path })} className={cn(navClass(active), "min-w-0 flex-1 pl-1")} title={owner}>
+            <Avatar email={owner} name={name} className="size-5 text-[8px]" />
+            <span className="truncate">{name}</span>
+            {unread > 0 && (
+              <span key={unread} className="rud1-pop ml-auto rounded-md bg-primary/15 px-1.5 text-xs font-semibold tabular-nums text-primary">
+                {unread > 999 ? "999+" : unread}
               </span>
             )}
           </Link>
-        );
-      })}
-    </nav>
+        ) : (
+          <span className="truncate px-2 text-sm text-muted-foreground">{name}</span>
+        )}
+      </div>
+      {open && (
+        <div className="rud1-in space-y-0.5 pb-1">
+          {rest.map((f) => (
+            <FolderLink key={f.path} folder={f} active={f.path === current} indent={1 + f.depth} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FolderNav({ folders, current, sharedNames }: { folders: Folder[]; current: string | null; sharedNames: Record<string, string> }) {
+  const own = folders.filter((f) => !f.owner);
+  const owners = [...new Set(folders.filter((f) => f.owner).map((f) => f.owner!))];
+  return (
+    <>
+      <nav className="space-y-0.5" aria-label="Carpetas">
+        <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">Carpetas</p>
+        {own.map((folder) => (
+          <FolderLink key={folder.path} folder={folder} active={folder.path === current} indent={folder.depth} />
+        ))}
+      </nav>
+      {owners.length > 0 && (
+        <nav className="space-y-0.5" aria-label="Buzones comunes">
+          <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">Buzones comunes</p>
+          {owners.map((owner) => (
+            <SharedMailbox
+              key={owner}
+              owner={owner}
+              name={sharedNames[owner] ?? owner}
+              folders={folders.filter((f) => f.owner === owner)}
+              current={current}
+            />
+          ))}
+        </nav>
+      )}
+    </>
   );
 }
 
@@ -217,12 +313,14 @@ function SidebarBody({
   current,
   isAdmin,
   pathname,
+  sharedNames,
 }: {
   user: ShellUser;
   folders: Folder[];
   current: string | null;
   isAdmin: boolean;
   pathname: string;
+  sharedNames: Record<string, string>;
 }) {
   const compose = useCompose();
   return (
@@ -241,7 +339,7 @@ function SidebarBody({
         </Button>
       </div>
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-2">
-        <FolderNav folders={folders} current={current} />
+        <FolderNav folders={folders} current={current} sharedNames={sharedNames} />
         <nav className="space-y-0.5" aria-label="Ajustes">
           <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">Ajustes</p>
           <Link href="/ajustes" className={navClass(pathname === "/ajustes")}>
@@ -413,12 +511,14 @@ export function MailShell({
   folders,
   prefs,
   isAdmin,
+  sharedNames,
   children,
 }: {
   user: ShellUser;
   folders: Folder[];
   prefs: WatcherPrefs;
   isAdmin: boolean;
+  sharedNames: Record<string, string>;
   children: React.ReactNode;
 }) {
   const params = useSearchParams();
@@ -426,17 +526,23 @@ export function MailShell({
   const router = useRouter();
   const inSettings = pathname.startsWith("/ajustes");
   const current = inSettings ? null : params.get("carpeta") ?? "INBOX";
-  const folderName = folders.find((f) => f.path === (current ?? "INBOX"))?.name ?? current ?? "";
+  const currentFolder = folders.find((f) => f.path === (current ?? "INBOX"));
+  // En un buzón común, el nombre del buzón delante: "Rud1 Support · Enviados".
+  const folderName = currentFolder
+    ? currentFolder.owner
+      ? `${sharedNames[currentFolder.owner] ?? currentFolder.owner} · ${currentFolder.name}`
+      : currentFolder.name
+    : current ?? "";
   const [open, setOpen] = React.useState(false);
   const [refreshing, startRefresh] = React.useTransition();
 
   React.useEffect(() => setOpen(false), [pathname, current]);
 
   const refresh = React.useCallback(() => startRefresh(() => router.refresh()), [router]);
-  const live = useMailWatcher(prefs);
+  const live = useMailWatcher(prefs, sharedNames);
   useComposeFromUrl();
 
-  const inbox = folders.find((f) => f.specialUse === "inbox");
+  const inbox = folders.find((f) => f.specialUse === "inbox" && !f.owner);
   React.useEffect(() => {
     const unread = inbox?.unread ?? 0;
     const place = inSettings ? "Ajustes" : folderName;
@@ -444,7 +550,9 @@ export function MailShell({
     setAppBadge(unread);
   }, [inbox?.unread, folderName, inSettings]);
 
-  const body = <SidebarBody user={user} folders={folders} current={current} isAdmin={isAdmin} pathname={pathname} />;
+  const body = (
+    <SidebarBody user={user} folders={folders} current={current} isAdmin={isAdmin} pathname={pathname} sharedNames={sharedNames} />
+  );
 
   return (
     <div className="flex h-dvh overflow-hidden bg-muted/20">

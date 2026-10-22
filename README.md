@@ -38,7 +38,12 @@ Datos propios (perfiles, fotos, firmas, plantillas, contactos, borradores) en
 SQLite: `/data/rud1-mail.db` en el contenedor (volumen `rud1-mail-data`).
 En desarrollo, `DATA_DIR` fuera de la carpeta del proyecto.
 
-Pendiente: ver los buzones comunes dentro de rud1 Mail según permisos (fase 3).
+- **Buzones comunes**: quien tiene permiso los ve en su barra lateral (con
+  contador, carpetas y avisos de correo nuevo) y responde como ellos; la copia
+  queda en el Enviados del buzón común. Administración → Buzones comunes decide
+  quién los ve (permisos IMAP, valen también en el móvil y Outlook) y quién
+  envía como ellos. rud1 Mail cambia esos permisos con el usuario maestro de
+  Dovecot (`DOVECOT_MASTER_USER/PASS`), que solo existe en el servidor.
 
 ## App instalable
 

@@ -5,7 +5,7 @@ import { convert } from "html-to-text";
 import { simpleParser, type AddressObject, type ParsedMail } from "mailparser";
 
 import { withImap, withMailbox, type Credentials } from "@/lib/imap";
-import { specialFolderPath, specialFolders, type SpecialUse } from "@/lib/mail/folders";
+import { listFolders, specialFolderFor, specialUseOfPath, type SpecialUse } from "@/lib/mail/folders";
 
 export interface Address {
   name: string;
@@ -330,7 +330,8 @@ export async function moveToSpecial(
   uids: number[],
   use: SpecialUse,
 ): Promise<void> {
-  const destination = await withImap(credentials, (client) => specialFolderPath(client, use));
+  // En un buzón común, su propia Papelera/Archivo/Spam; en el propio, los suyos.
+  const destination = await withImap(credentials, (client) => specialFolderFor(client, path, use));
   if (!destination) throw new Error(`Este buzón no tiene carpeta "${use}"`);
   await moveMessages(credentials, path, uids, destination);
 }
@@ -344,9 +345,5 @@ export async function deleteForever(credentials: Credentials, path: string, uids
 }
 
 export async function folderSpecialUse(credentials: Credentials, path: string): Promise<SpecialUse | null> {
-  return withImap(credentials, async (client) => {
-    const map = await specialFolders(client);
-    const found = (Object.keys(map) as SpecialUse[]).find((use) => map[use] === path);
-    return found ?? null;
-  });
+  return specialUseOfPath(path, await listFolders(credentials));
 }

@@ -15,6 +15,8 @@ export interface DraftRecipient {
 }
 
 export interface DraftData {
+  /** Dirección desde la que se envía (la propia o un buzón común). */
+  from?: string;
   to: DraftRecipient[];
   cc: DraftRecipient[];
   bcc: DraftRecipient[];

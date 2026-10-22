@@ -61,7 +61,12 @@ export default async function MailPage({ searchParams }: PageProps) {
       >
         <MessageList
           folder={folder}
-          folderName={folders.find((f) => f.path === folder)?.name ?? folder}
+          folderName={(() => {
+            const f = folders.find((x) => x.path === folder);
+            if (!f) return folder;
+            // En un buzón común se dice de cuál: "support@rud1.es · Enviados".
+            return f.owner ? `${f.owner} · ${f.name}` : f.name;
+          })()}
           specialUse={specialUse}
           list={list}
           query={query}

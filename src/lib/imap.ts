@@ -15,11 +15,17 @@ import { config } from "@/lib/config";
  */
 
 const IDLE_CLOSE_MS = 5 * 60 * 1000;
+/**
+ * Vida máxima de una conexión: Dovecot calcula los buzones compartidos al
+ * entrar, así que un permiso nuevo (o quitado) se nota como mucho en este rato.
+ */
+const MAX_AGE_MS = 10 * 60 * 1000;
 
 interface PooledClient {
   client: ImapFlow;
   ready: Promise<void>;
   lastUsed: number;
+  createdAt: number;
 }
 
 // En desarrollo Next recarga los módulos: el almacén cuelga de globalThis
@@ -91,15 +97,19 @@ export async function verifyCredentials(credentials: Credentials, clientIp?: str
 async function getClient(credentials: Credentials): Promise<ImapFlow> {
   const key = poolKey(credentials.email, credentials.password);
   const existing = pool.get(key);
-  if (existing && existing.client.usable) {
+  if (existing && existing.client.usable && Date.now() - existing.createdAt < MAX_AGE_MS) {
     await existing.ready;
     existing.lastUsed = Date.now();
     return existing.client;
   }
-  if (existing) pool.delete(key);
+  if (existing) {
+    pool.delete(key);
+    // La vieja se cierra cuando acaben lo que tengan en curso.
+    if (existing.client.usable) setTimeout(() => existing.client.logout().catch(() => existing.client.close()), 30_000).unref();
+  }
 
   const client = newClient(credentials);
-  const entry: PooledClient = { client, ready: client.connect(), lastUsed: Date.now() };
+  const entry: PooledClient = { client, ready: client.connect(), lastUsed: Date.now(), createdAt: Date.now() };
   pool.set(key, entry);
   client.on("close", () => {
     if (pool.get(key)?.client === client) pool.delete(key);

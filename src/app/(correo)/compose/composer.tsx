@@ -27,7 +27,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/compo
 import { useSpring } from "@/shared/hooks/use-spring";
 
 import { formatSize } from "../nav";
-import type { ComposeState } from "./compose-provider";
+import type { ComposeState, Identity } from "./compose-provider";
 import { RecipientInput, type Recipient } from "./recipient-input";
 
 const MAX_TOTAL = 25 * 1024 * 1024;
@@ -89,13 +89,16 @@ function PreviewDialog({ document, onClose }: { document: string | null; onClose
 
 export function Composer({
   initial,
+  identities,
   onClose,
   onDirtyChange,
 }: {
   initial: ComposeState;
+  identities: Identity[];
   onClose: () => void;
   onDirtyChange: (dirty: boolean) => void;
 }) {
+  const [from, setFrom] = React.useState(initial.from);
   const [to, setTo] = React.useState<Recipient[]>(initial.to);
   const [cc, setCc] = React.useState<Recipient[]>(initial.cc);
   const [bcc, setBcc] = React.useState<Recipient[]>(initial.bcc);
@@ -143,6 +146,7 @@ export function Composer({
 
   function formData(): FormData {
     const fd = new FormData();
+    fd.set("from", from);
     fd.set("to", JSON.stringify(to));
     fd.set("cc", JSON.stringify(cc));
     fd.set("bcc", JSON.stringify(bcc));
@@ -332,6 +336,25 @@ export function Composer({
 
         {!minimized && (
           <>
+            {identities.length > 1 && (
+              <Row label="De">
+                <select
+                  aria-label="De"
+                  value={from}
+                  onChange={(e) => {
+                    setFrom(e.target.value);
+                    touch();
+                  }}
+                  className="min-w-0 flex-1 cursor-pointer bg-transparent py-2.5 text-sm outline-none"
+                >
+                  {identities.map((i) => (
+                    <option key={i.address} value={i.address} className="bg-background">
+                      {i.name} &lt;{i.address}&gt;
+                    </option>
+                  ))}
+                </select>
+              </Row>
+            )}
             <Row
               label="Para"
               extra={

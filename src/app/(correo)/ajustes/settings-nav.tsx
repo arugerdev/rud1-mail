@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AtSign, FileSignature, UserRound, UsersRound } from "lucide-react";
+import { AtSign, FileSignature, Inbox, UserRound, UsersRound } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -10,6 +10,7 @@ const PERSONAL = [{ href: "/ajustes", label: "Mi perfil y firma", icon: UserRoun
 const ADMIN = [
   { href: "/ajustes/administracion", label: "Cabecera y pie", icon: FileSignature },
   { href: "/ajustes/administracion/usuarios", label: "Usuarios", icon: UsersRound },
+  { href: "/ajustes/administracion/buzones-comunes", label: "Buzones comunes", icon: Inbox },
   { href: "/ajustes/administracion/direcciones", label: "Direcciones", icon: AtSign },
 ];
 

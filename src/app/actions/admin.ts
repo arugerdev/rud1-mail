@@ -14,8 +14,10 @@ import {
   deleteMailbox,
   editAlias,
   editMailbox,
+  listMailboxes,
   MailcowError,
 } from "@/lib/mailcow";
+import { getViewers, setViewers } from "@/lib/shared-access";
 import { sanitizeAuthoredHtml } from "@/lib/mail/authoring";
 import { wrap } from "@/lib/mail/render";
 import { isValidEmail } from "@/lib/mail/text";
@@ -212,5 +214,38 @@ export async function deleteAliasAction(id: number): Promise<AdminResult> {
     return done();
   } catch (error) {
     return failure(error, "No se pudo borrar la dirección.");
+  }
+}
+
+// --- Buzones comunes: quién los ve y quién envía como ellos ---
+
+export async function saveSharedAccessAction(owner: string, viewers: string[], senders: string[]): Promise<AdminResult> {
+  try {
+    await admin();
+    const boxes = await listMailboxes(config.domain);
+    const shared = boxes.find((b) => b.username === owner && b.shared);
+    if (!shared) return { ok: false, error: "Ese buzón no es un buzón común." };
+    const people = new Map(boxes.filter((b) => !b.shared).map((b) => [b.username, b]));
+    const clean = (list: string[]) => [...new Set(list.map((e) => e.trim().toLowerCase()))].filter((e) => people.has(e));
+
+    const before = new Set(await getViewers(owner).catch(() => [] as string[]));
+    const after = clean(viewers);
+    await setViewers(owner, after);
+    // Quien gana o pierde el acceso lo ve al momento: se renueva su conexión.
+    const changed = [...new Set([...before, ...after])].filter((e) => before.has(e) !== after.includes(e));
+    await Promise.all(changed.map((e) => closeConnections(e)));
+
+    // "Enviar como" vive en cada persona: se añade o se quita este buzón de su lista.
+    const sendersSet = new Set(clean(senders));
+    for (const person of people.values()) {
+      const has = person.sendAs.includes(owner);
+      const want = sendersSet.has(person.username);
+      if (has === want) continue;
+      const next = want ? [...person.sendAs, owner] : person.sendAs.filter((a) => a !== owner);
+      await editMailbox(person.username, { sendAs: next });
+    }
+    return done();
+  } catch (error) {
+    return failure(error, "No se pudieron guardar los permisos.");
   }
 }

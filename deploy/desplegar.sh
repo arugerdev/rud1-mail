@@ -65,6 +65,20 @@ if ! grep -qs "login_trusted_networks.*$APP_IP" "$EXTRA"; then
   echo "   Dovecot: rud1 Mail como red de confianza"
 fi
 
+# 3a. Usuario maestro de Dovecot: rud1 Mail lo usa para decidir quién ve cada
+#     buzón común (permisos IMAP). Mailcow lo guarda como <usuario>@mailcow.local.
+if ! grep -qE "^DOVECOT_MASTER_USER=.+" mailcow.conf; then
+  MP=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 40)
+  sed -i "s/^DOVECOT_MASTER_USER=.*/DOVECOT_MASTER_USER=rud1mail/; s/^DOVECOT_MASTER_PASS=.*/DOVECOT_MASTER_PASS=$MP/" mailcow.conf
+  RESTART_MAILCOW=1
+  echo "   Usuario maestro de Dovecot creado"
+fi
+if ! grep -q "^DOVECOT_MASTER_USER=" /opt/rud1-mail/.env; then
+  MU=$(grep "^DOVECOT_MASTER_USER=" mailcow.conf | cut -d= -f2)
+  MP=$(grep "^DOVECOT_MASTER_PASS=" mailcow.conf | cut -d= -f2)
+  printf "DOVECOT_MASTER_USER=%s@mailcow.local\nDOVECOT_MASTER_PASS=%s\n" "$MU" "$MP" >> /opt/rud1-mail/.env
+fi
+
 # 3b. Sin SOGo: no se usa (rud1 Mail es el webmail) y es superficie de ataque.
 if ! grep -q "^SKIP_SOGO=y" mailcow.conf; then
   sed -i "s/^SKIP_SOGO=.*/SKIP_SOGO=y/" mailcow.conf
