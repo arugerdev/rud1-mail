@@ -59,6 +59,16 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (owner, message_id)
   );
   `,
+  // 3: sonido propio que sube cada persona para sus avisos
+  `
+  CREATE TABLE custom_sounds (
+    email TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    name TEXT NOT NULL,
+    data BLOB NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 function open(): Database.Database {
@@ -67,6 +77,11 @@ function open(): Database.Database {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
+  migrate(db);
+  return db;
+}
+
+function migrate(db: Database.Database): void {
   const current = db.pragma("user_version", { simple: true }) as number;
   for (let v = current; v < MIGRATIONS.length; v++) {
     db.transaction(() => {
@@ -74,13 +89,17 @@ function open(): Database.Database {
       db.pragma(`user_version = ${v + 1}`);
     })();
   }
-  return db;
 }
 
-// Una sola conexión por proceso (en desarrollo sobrevive a las recargas).
-const holder = globalThis as unknown as { __rud1MailDb?: Database.Database };
+// Una sola conexión por proceso (en desarrollo sobrevive a las recargas, así
+// que se comprueba si el código trae migraciones nuevas).
+const holder = globalThis as unknown as { __rud1MailDb?: Database.Database; __rud1MailDbVersion?: number };
 
 export function db(): Database.Database {
   holder.__rud1MailDb ??= open();
+  if (holder.__rud1MailDbVersion !== MIGRATIONS.length) {
+    migrate(holder.__rud1MailDb);
+    holder.__rud1MailDbVersion = MIGRATIONS.length;
+  }
   return holder.__rud1MailDb;
 }

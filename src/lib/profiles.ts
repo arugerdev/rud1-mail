@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "@/lib/db";
+import { DEFAULT_SOUND_PREFS, normalizeSoundPrefs, type SoundPrefs } from "@/lib/sound-catalog";
 
 /** Lo que cada persona cuenta de sí misma: sale en su firma y en la cabecera y el pie. */
 export interface Profile {
@@ -18,15 +19,17 @@ export interface Profile {
 export interface Prefs {
   /** Avisos del sistema con el correo nuevo. */
   notify: boolean;
-  /** Sonido al llegar correo nuevo (con la app abierta). */
+  /** Sonidos de aviso (con la app abierta), sí o no. */
   sound: boolean;
+  /** Qué sonido y a qué volumen para cada cosa. */
+  sounds: SoundPrefs;
   /** Lista compacta o cómoda. */
   density: "comoda" | "compacta";
   /** Abrir el siguiente mensaje al archivar o borrar el actual. */
   openNext: boolean;
 }
 
-export const DEFAULT_PREFS: Prefs = { notify: true, sound: false, density: "comoda", openNext: true };
+export const DEFAULT_PREFS: Prefs = { notify: true, sound: true, sounds: DEFAULT_SOUND_PREFS, density: "comoda", openNext: true };
 
 interface Row {
   email: string;
@@ -42,7 +45,8 @@ interface Row {
 
 function parsePrefs(raw: string): Prefs {
   try {
-    return { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<Prefs>) };
+    const saved = JSON.parse(raw) as Partial<Prefs>;
+    return { ...DEFAULT_PREFS, ...saved, sounds: normalizeSoundPrefs(saved.sounds) };
   } catch {
     return DEFAULT_PREFS;
   }
@@ -134,4 +138,30 @@ export function avatarVersions(): Record<string, number> {
 
 export function fullName(p: Pick<Profile, "firstName" | "lastName" | "email">): string {
   return `${p.firstName} ${p.lastName}`.trim() || p.email;
+}
+
+// --- Sonido propio ---
+
+export interface CustomSound {
+  type: string;
+  name: string;
+  data: Buffer;
+}
+
+export function getCustomSound(email: string): CustomSound | null {
+  const row = db().prepare(`SELECT type, name, data FROM custom_sounds WHERE email = ?`).get(email) as CustomSound | undefined;
+  return row ?? null;
+}
+
+export function saveCustomSound(email: string, sound: CustomSound): void {
+  db()
+    .prepare(
+      `INSERT INTO custom_sounds (email, type, name, data, updated_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(email) DO UPDATE SET type = excluded.type, name = excluded.name, data = excluded.data, updated_at = excluded.updated_at`,
+    )
+    .run(email, sound.type, sound.name, sound.data, Date.now());
+}
+
+export function deleteCustomSound(email: string): void {
+  db().prepare(`DELETE FROM custom_sounds WHERE email = ?`).run(email);
 }

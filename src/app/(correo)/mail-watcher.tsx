@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { setAppBadge } from "../pwa";
 import { desktopBridge } from "./desktop-bridge";
+import { useSounds } from "./sound-provider";
 import { mailHref } from "./nav";
 
 interface NewMail {
@@ -18,7 +19,6 @@ type Counts = Record<string, { unread: number; total: number }>;
 
 export interface WatcherPrefs {
   notify: boolean;
-  sound: boolean;
 }
 
 async function notify(mail: NewMail, open: (url: string) => void, override?: { title: string; url: string }) {
@@ -52,30 +52,6 @@ async function notify(mail: NewMail, open: (url: string) => void, override?: { t
   else new Notification(title, options);
 }
 
-/** Un "ding" corto, sin archivos de audio. */
-function chime() {
-  try {
-    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new Ctx();
-    const now = ctx.currentTime;
-    [880, 1320].forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.0001, now + i * 0.09);
-      gain.gain.exponentialRampToValueAtTime(0.12, now + i * 0.09 + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.09 + 0.35);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(now + i * 0.09);
-      osc.stop(now + i * 0.09 + 0.4);
-    });
-    setTimeout(() => void ctx.close(), 1000);
-  } catch {
-    // Sin audio no pasa nada.
-  }
-}
-
 /** En la app de escritorio no hace falta el permiso del navegador. */
 function canNotify(): boolean {
   if (desktopBridge()?.notify) return true;
@@ -92,6 +68,7 @@ export type LiveState = "conectando" | "en-directo" | "sin-conexion";
  */
 export function useMailWatcher(prefs: WatcherPrefs, sharedNames: Record<string, string> = {}): LiveState {
   const router = useRouter();
+  const sounds = useSounds();
   const [state, setState] = React.useState<LiveState>("conectando");
   const prefsRef = React.useRef(prefs);
   prefsRef.current = prefs;
@@ -126,7 +103,7 @@ export function useMailWatcher(prefs: WatcherPrefs, sharedNames: Record<string, 
         const mail = JSON.parse((event as MessageEvent).data) as NewMail;
         refreshSoon();
         const away = document.visibilityState !== "visible" || !document.hasFocus();
-        if (prefsRef.current.sound) chime();
+        sounds.play("nuevo");
         if (away && prefsRef.current.notify && canNotify()) {
           void notify(mail, (url) => router.push(url)).catch(() => undefined);
         }
@@ -147,7 +124,7 @@ export function useMailWatcher(prefs: WatcherPrefs, sharedNames: Record<string, 
             const owner = path.split("/")[1];
             const name = namesRef.current[owner] ?? owner;
             const away = document.visibilityState !== "visible" || !document.hasFocus();
-            if (prefsRef.current.sound) chime();
+            sounds.play("comun");
             if (away && prefsRef.current.notify && canNotify()) {
               void notify({ uid: null, from: "", address: "", subject: `Ha llegado correo a ${owner}` }, (url) => router.push(url), {
                 title: `Correo nuevo en ${name}`,
@@ -190,7 +167,7 @@ export function useMailWatcher(prefs: WatcherPrefs, sharedNames: Record<string, 
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("rud1-desktop:navigate", onNavigate);
     };
-  }, [router]);
+  }, [router, sounds]);
 
   return state;
 }

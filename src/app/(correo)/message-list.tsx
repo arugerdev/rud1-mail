@@ -38,6 +38,7 @@ import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Avatar } from "./avatar";
 import { useCompose } from "./compose/compose-provider";
 import { mailHref, shortDate } from "./nav";
+import { useSounds } from "./sound-provider";
 
 function displayName(a: { name: string; address: string } | null | undefined): string {
   if (!a) return "(sin remitente)";
@@ -61,11 +62,13 @@ function counterpart(msg: MessageSummary, specialUse: SpecialUse | null): string
 
 export function useMailAction() {
   const [pending, startTransition] = React.useTransition();
+  const sounds = useSounds();
   const run = React.useCallback(
     (work: () => Promise<ActionResult>, success?: string, after?: () => void) => {
       startTransition(async () => {
         const result = await work();
         if (!result.ok) {
+          sounds.play("error");
           toast.error(result.error ?? "Algo ha fallado.");
           return;
         }
@@ -73,7 +76,7 @@ export function useMailAction() {
         after?.();
       });
     },
-    [],
+    [sounds],
   );
   return { pending, run };
 }

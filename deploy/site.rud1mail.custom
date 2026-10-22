@@ -48,7 +48,7 @@ location ^~ /marca/ {
     include /etc/nginx/conf.d/rud1mail.proxy;
 }
 # API propia de rud1 Mail (la de Mailcow es /api/v1 y sigue siendo suya).
-location ~ ^/api/(adjunto|estado|contactos|avatar|imagen)(/|$) {
+location ~ ^/api/(adjunto|estado|contactos|avatar|imagen|sonido)(/|$) {
     include /etc/nginx/conf.d/rud1mail.proxy;
 }
 # Canal en tiempo real: conexión larga y sin retener los eventos.

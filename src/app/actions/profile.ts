@@ -9,8 +9,10 @@ import { editMailbox, mailcowAvailable } from "@/lib/mailcow";
 import { wrap } from "@/lib/mail/render";
 import {
   DEFAULT_PREFS,
+  deleteCustomSound,
   fullName,
   getProfile,
+  saveCustomSound,
   setAvatar,
   updatePrefs,
   updateProfile,
@@ -18,6 +20,7 @@ import {
   type Prefs,
 } from "@/lib/profiles";
 import { getSession, requireUser } from "@/lib/session";
+import { DEFAULT_SOUND_PREFS, normalizeSoundPrefs } from "@/lib/sound-catalog";
 import { renderTemplate, variablesFor } from "@/lib/templates";
 
 export interface ProfileResult {
@@ -107,10 +110,60 @@ export async function savePrefsAction(prefs: Partial<Prefs>): Promise<ProfileRes
   const next: Prefs = {
     notify: typeof prefs.notify === "boolean" ? prefs.notify : current.notify,
     sound: typeof prefs.sound === "boolean" ? prefs.sound : current.sound,
+    // El sonido propio solo cambia al subirlo o quitarlo.
+    sounds: prefs.sounds ? { ...normalizeSoundPrefs(prefs.sounds), custom: current.sounds.custom } : current.sounds,
     density: prefs.density === "compacta" || prefs.density === "comoda" ? prefs.density : current.density ?? DEFAULT_PREFS.density,
     openNext: typeof prefs.openNext === "boolean" ? prefs.openNext : current.openNext,
   };
   updatePrefs(user.email, next);
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+// --- Sonido propio para los avisos ---
+
+const MAX_SOUND_BYTES = 1024 * 1024;
+const SOUND_TYPES = new Set([
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/ogg",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/wave",
+  "audio/webm",
+  "audio/mp4",
+  "audio/x-m4a",
+  "audio/aac",
+  "audio/flac",
+]);
+
+export async function uploadSoundAction(formData: FormData): Promise<ProfileResult> {
+  const user = await requireUser();
+  const file = formData.get("sonido");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Elige un archivo de sonido." };
+  if (file.size > MAX_SOUND_BYTES) return { ok: false, error: "El sonido pasa de 1 MB: usa uno más corto." };
+  if (!SOUND_TYPES.has(file.type)) return { ok: false, error: "Ese formato no vale. Usa MP3, OGG, WAV, M4A, WebM o FLAC." };
+  const profile = getProfile(user.email, user.name);
+  const name = file.name.replace(/\.[^.]+$/, "").slice(0, 80) || "Mi sonido";
+  saveCustomSound(user.email, { type: file.type, name, data: Buffer.from(await file.arrayBuffer()) });
+  updatePrefs(user.email, {
+    ...profile.prefs,
+    sounds: { ...profile.prefs.sounds, custom: { type: file.type, name, version: Date.now() } },
+  });
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function removeSoundAction(): Promise<ProfileResult> {
+  const user = await requireUser();
+  const profile = getProfile(user.email, user.name);
+  deleteCustomSound(user.email);
+  // Lo que usaba el sonido propio vuelve al de siempre.
+  const events = { ...profile.prefs.sounds.events };
+  for (const key of Object.keys(events) as (keyof typeof events)[]) {
+    if (events[key].sound === "personalizado") events[key] = { ...DEFAULT_SOUND_PREFS.events[key], volume: events[key].volume };
+  }
+  updatePrefs(user.email, { ...profile.prefs, sounds: { ...profile.prefs.sounds, events, custom: null } });
   revalidatePath("/", "layout");
   return { ok: true };
 }

@@ -27,6 +27,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/compo
 import { useSpring } from "@/shared/hooks/use-spring";
 
 import { formatSize } from "../nav";
+import { useSounds } from "../sound-provider";
 import type { ComposeState, Identity } from "./compose-provider";
 import { RecipientInput, type Recipient } from "./recipient-input";
 
@@ -121,6 +122,7 @@ export function Composer({
   const [saving, startSaving] = React.useTransition();
   const [previewing, startPreview] = React.useTransition();
   const [dragging, setDragging] = React.useState(false);
+  const sounds = useSounds();
   const fileInput = React.useRef<HTMLInputElement>(null);
   const editorRef = React.useRef<RichEditorHandle>(null);
   const toRef = React.useRef<HTMLInputElement>(null);
@@ -179,9 +181,11 @@ export function Composer({
       await savingRef.current?.catch(() => undefined);
       const result = await sendAction(formData());
       if (!result.ok) {
+        sounds.play("error");
         toast.error(result.error ?? "No se pudo enviar el mensaje.");
         return;
       }
+      sounds.play("enviado");
       toast.success("Mensaje enviado");
       onClose();
     });

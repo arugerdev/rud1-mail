@@ -24,6 +24,7 @@ import { ToggleSwitch } from "@/shared/components/ui/toggle-switch";
 import { Avatar } from "../avatar";
 import { useNotificationPermission } from "../mail-watcher";
 import { DesktopSettings } from "./desktop-settings";
+import { SoundSettings } from "./sound-settings";
 import { TemplateEditor, type TemplateVariable } from "./template-editor";
 
 interface ProfileFields {
@@ -232,7 +233,6 @@ export function ProfileSettings({
               : "Un aviso del sistema cuando llega correo y no estás mirando rud1 Mail."
           }
         />
-        <ToggleSwitch checked={prefs.sound} onChange={(v) => setPref({ sound: v })} label="Sonido al llegar correo" />
         <ToggleSwitch
           checked={prefs.density === "compacta"}
           onChange={(v) => setPref({ density: v ? "compacta" : "comoda" })}
@@ -245,6 +245,10 @@ export function ProfileSettings({
           label="Abrir el siguiente al archivar o borrar"
           description="Si no, vuelves a la lista."
         />
+      </Section>
+
+      <Section title="Sonidos" description="Elige cómo suena cada aviso. Pulsa ▶ para escucharlo." delay={140}>
+        <SoundSettings enabled={initialPrefs.sound} prefs={initialPrefs.sounds} />
       </Section>
 
       <DesktopSettings delay={150} />

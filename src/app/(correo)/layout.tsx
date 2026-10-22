@@ -8,6 +8,7 @@ import { requireUser } from "@/lib/session";
 import { AvatarProvider } from "./avatar";
 import { ComposeProvider } from "./compose/compose-provider";
 import { MailShell } from "./mail-shell";
+import { SoundProvider } from "./sound-provider";
 
 // Correo de cada persona: nunca se guarda en caché.
 export const dynamic = "force-dynamic";
@@ -34,17 +35,19 @@ export default async function MailLayout({ children }: { children: React.ReactNo
 
   return (
     <AvatarProvider versions={avatarVersions()}>
-      <ComposeProvider userEmail={user.email} identities={identities}>
-        <MailShell
-          user={{ name, email: user.email }}
-          folders={folders}
-          prefs={{ notify: profile.prefs.notify, sound: profile.prefs.sound }}
-          isAdmin={isAdmin(user.email)}
-          sharedNames={sharedNames}
-        >
-          {children}
-        </MailShell>
-      </ComposeProvider>
+      <SoundProvider enabled={profile.prefs.sound} prefs={profile.prefs.sounds}>
+        <ComposeProvider userEmail={user.email} identities={identities}>
+          <MailShell
+            user={{ name, email: user.email }}
+            folders={folders}
+            prefs={{ notify: profile.prefs.notify }}
+            isAdmin={isAdmin(user.email)}
+            sharedNames={sharedNames}
+          >
+            {children}
+          </MailShell>
+        </ComposeProvider>
+      </SoundProvider>
     </AvatarProvider>
   );
 }
