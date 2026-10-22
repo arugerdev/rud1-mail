@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { getUserAccess, isOwner, isSystemMailbox, listRoles, permissionsFor, teamsOf } from "@/lib/access";
 import { requirePermission } from "@/lib/admin";
+import { agendaConfigured, agendaLinks } from "@/lib/agenda";
 import { config } from "@/lib/config";
 import { listMailboxes, mailcowAvailable } from "@/lib/mailcow";
 import { fullName, getProfile } from "@/lib/profiles";
@@ -15,6 +16,7 @@ export default async function UsersPage() {
   const user = await requirePermission("admin.buzones");
   if (!mailcowAvailable()) return <p className="text-sm text-muted-foreground">La administración no está disponible ahora mismo.</p>;
   const boxes = await listMailboxes(config.domain);
+  const links = agendaLinks();
   const rows = boxes.map((b) => {
     const p = b.shared ? null : getProfile(b.username, b.name);
     const access = b.shared
@@ -31,7 +33,8 @@ export default async function UsersPage() {
       displayName: p && fullName(p) !== b.username ? fullName(p) : b.name,
       position: p?.position ?? "",
       access,
+      agendaLink: links.get(b.username) ?? null,
     };
   });
-  return <UsersSettings rows={rows} me={user.email} domain={config.domain} roles={listRoles()} canManageAccess={isOwner(user.email)} />;
+  return <UsersSettings rows={rows} me={user.email} domain={config.domain} roles={listRoles()} canManageAccess={isOwner(user.email)} agenda={agendaConfigured()} />;
 }

@@ -144,6 +144,15 @@ const MIGRATIONS: string[] = [
     disabled INTEGER NOT NULL DEFAULT 0
   );
   `,
+  // 6: cuenta de admin.rud1.es de cada buzón, cuando no es la misma dirección
+  `
+  CREATE TABLE agenda_links (
+    email TEXT PRIMARY KEY,
+    admin_email TEXT NOT NULL,
+    set_by TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 function open(): Database.Database {

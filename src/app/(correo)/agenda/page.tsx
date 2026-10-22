@@ -33,7 +33,7 @@ export default async function AgendaPage() {
     people = await agendaCall<AgendaPersonOption[]>(user.email, "people").catch(() => []);
   } catch (error) {
     if (error instanceof AgendaApiError && error.code === "no_admin") {
-      return <Unavailable title="No tienes agenda en admin.rud1.es" text="Tu correo no tiene una cuenta activa en admin.rud1.es. Pide a Álvaro o Manuel que te den de alta y aparecerá aquí." />;
+      return <Unavailable title="No tienes agenda en admin.rud1.es" text="No encontramos tu cuenta de admin.rud1.es. Si entras allí con otro correo, pide a Álvaro o Manuel que lo enlacen (Administración → Usuarios → Cuenta de la agenda); si no tienes cuenta, que te den de alta." />;
     }
     const text = error instanceof AgendaApiError ? error.message : "No se ha podido abrir la agenda.";
     return <Unavailable title="La agenda no está disponible" text={text} />;

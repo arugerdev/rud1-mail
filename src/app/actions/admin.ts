@@ -18,6 +18,7 @@ import {
   type PersonGrant,
   type TeamGrant,
 } from "@/lib/access";
+import { AgendaApiError, checkAdminAccount, setAgendaLink } from "@/lib/agenda";
 import { config } from "@/lib/config";
 import { invalidateDirectory } from "@/lib/contacts";
 import { closeConnections } from "@/lib/imap";
@@ -421,4 +422,34 @@ export async function resyncAccessAction(): Promise<AdminResult> {
     return failure(error, "No se pudo.");
   }
   return applyAccess();
+}
+
+// --- Agenda: qué cuenta de admin.rud1.es es cada buzón ---
+
+/**
+ * Enlaza un buzón con su cuenta de admin.rud1.es (cuando no es la misma
+ * dirección). Solo los propietarios: si no, cualquiera podría usar la agenda
+ * de otro. Antes de guardar se comprueba que la cuenta existe y está activa.
+ */
+export async function setAgendaLinkAction(email: string, adminEmail: string | null): Promise<AdminResult & { name?: string }> {
+  try {
+    const user = await owner();
+    const target = email.toLowerCase();
+    if (!(await personalMailboxes()).has(target)) return { ok: false, error: "Esa persona no existe." };
+    const clean = adminEmail?.trim().toLowerCase() || null;
+    if (!clean) {
+      setAgendaLink(target, null, user.email);
+      return done();
+    }
+    if (!isValidEmail(clean)) return { ok: false, error: "Esa dirección no es válida." };
+    const me = await checkAdminAccount(clean);
+    setAgendaLink(target, clean, user.email);
+    return { ...done(), name: me.name ?? clean };
+  } catch (error) {
+    if (error instanceof AgendaApiError) {
+      if (error.code === "no_admin") return { ok: false, error: "No hay ninguna cuenta activa en admin.rud1.es con ese correo." };
+      return { ok: false, error: error.message };
+    }
+    return failure(error, "No se pudo enlazar la cuenta.");
+  }
 }

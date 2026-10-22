@@ -9,6 +9,7 @@ import {
   Pause,
   Play,
   Plus,
+  CalendarDays,
   Send,
   ShieldCheck,
   Trash2,
@@ -49,6 +50,7 @@ import { Label } from "@/shared/components/ui/label";
 
 import { Avatar } from "../../../avatar";
 import { formatSize } from "../../../nav";
+import { AgendaLinkDialog } from "./agenda-link-dialog";
 import { PermissionsDialog, type AccessInfo } from "./permissions-dialog";
 
 export interface UserRow extends MailboxInfo {
@@ -56,6 +58,8 @@ export interface UserRow extends MailboxInfo {
   position: string;
   /** Solo en personas: rol, excepciones, equipos y lo que de verdad puede hacer. */
   access?: AccessInfo & { owner: boolean; system: boolean; effective: PermissionSet; teams: { name: string; color: string }[] };
+  /** Cuenta de admin.rud1.es para su agenda, si no es la misma dirección. */
+  agendaLink?: string | null;
 }
 
 function relative(ms: number | null): string {
@@ -307,6 +311,11 @@ function AccessLine({ row, roles }: { row: UserRow; roles: Role[] }) {
       ))}
       {Object.keys(a.overrides).length > 0 && <span className="text-[11px] text-muted-foreground">con excepciones</span>}
       {missing.length > 0 && <span className="text-[11px] text-warning">· {missing.join(", ")}</span>}
+      {row.agendaLink && (
+        <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground" title="Cuenta de admin.rud1.es para la agenda">
+          <CalendarDays className="size-3" /> {row.agendaLink}
+        </span>
+      )}
     </span>
   );
 }
@@ -317,6 +326,7 @@ export function UsersSettings({
   domain,
   roles,
   canManageAccess,
+  agenda,
 }: {
   rows: UserRow[];
   me: string;
@@ -324,10 +334,13 @@ export function UsersSettings({
   roles: Role[];
   /** Solo los propietarios reparten roles y permisos. */
   canManageAccess: boolean;
+  /** Si la agenda de admin.rud1.es está conectada. */
+  agenda: boolean;
 }) {
   const [creating, setCreating] = React.useState(false);
   const [password, setPassword] = React.useState<{ email: string; password: string } | null>(null);
   const [editing, setEditing] = React.useState<UserRow | null>(null);
+  const [linking, setLinking] = React.useState<UserRow | null>(null);
   const [deleting, setDeleting] = React.useState<UserRow | null>(null);
   const [filter, setFilter] = React.useState<"todos" | "personas" | "comunes">("todos");
   const [pending, start] = React.useTransition();
@@ -413,6 +426,11 @@ export function UsersSettings({
                       <ShieldCheck className="size-4" /> Rol y permisos…
                     </DropdownMenuItem>
                   )}
+                  {!row.shared && canManageAccess && agenda && !row.access?.system && (
+                    <DropdownMenuItem onClick={() => setLinking(row)}>
+                      <CalendarDays className="size-4" /> Cuenta de la agenda…
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem
                     disabled={row.username === me}
                     onClick={() => run(() => resetPasswordAction(row.username), "Contraseña restablecida", row.username)}
@@ -449,6 +467,10 @@ export function UsersSettings({
         }}
       />
       <PasswordDialog data={password} onClose={() => setPassword(null)} />
+      <AgendaLinkDialog
+        person={linking ? { email: linking.username, name: linking.displayName, link: linking.agendaLink ?? null } : null}
+        onClose={() => setLinking(null)}
+      />
       <PermissionsDialog
         person={editing?.access ? { email: editing.username, name: editing.displayName, access: editing.access } : null}
         roles={roles}

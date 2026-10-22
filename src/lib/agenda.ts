@@ -9,6 +9,7 @@ import "server-only";
  * RUD1_MAIL_AGENDA_SECRET en rud1-es). Sin ellos, la agenda no aparece.
  */
 
+import { db } from "@/lib/db";
 import type { AgendaEventDetail, AgendaMe, AgendaOccurrence, AgendaPersonOption } from "@/lib/agenda-types";
 
 export * from "@/lib/agenda-types";
@@ -31,9 +32,38 @@ export function agendaConfigured(): boolean {
 
 type Op = "me" | "people" | "range" | "today" | "event" | "save" | "move" | "delete" | "cancel" | "complete" | "reopen" | "ics";
 
-/** En desarrollo se puede hacer pasar por una persona de la base de pruebas de admin. */
-function agendaEmail(email: string): string {
-  return process.env.NODE_ENV !== "production" && process.env.AGENDA_DEV_EMAIL ? process.env.AGENDA_DEV_EMAIL : email;
+// --- Qué cuenta de admin.rud1.es es cada buzón ---
+
+/**
+ * La cuenta de admin de un buzón: la enlazada en Usuarios (p. ej.
+ * aruger@rud1.es → aruger.dev@gmail.com) o, si no hay, la misma dirección.
+ */
+export function adminEmailFor(email: string): string {
+  const row = db().prepare(`SELECT admin_email FROM agenda_links WHERE email = ?`).get(email.toLowerCase()) as
+    | { admin_email: string }
+    | undefined;
+  if (row) return row.admin_email;
+  // En desarrollo, sin enlace, se puede hacer pasar por una persona de la base de pruebas de admin.
+  if (process.env.NODE_ENV !== "production" && process.env.AGENDA_DEV_EMAIL) return process.env.AGENDA_DEV_EMAIL;
+  return email;
+}
+
+export function agendaLinks(): Map<string, string> {
+  const rows = db().prepare(`SELECT email, admin_email FROM agenda_links`).all() as { email: string; admin_email: string }[];
+  return new Map(rows.map((r) => [r.email, r.admin_email]));
+}
+
+export function setAgendaLink(email: string, adminEmail: string | null, by: string): void {
+  if (!adminEmail) {
+    db().prepare(`DELETE FROM agenda_links WHERE email = ?`).run(email.toLowerCase());
+    return;
+  }
+  db()
+    .prepare(
+      `INSERT INTO agenda_links (email, admin_email, set_by, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(email) DO UPDATE SET admin_email = excluded.admin_email, set_by = excluded.set_by, updated_at = excluded.updated_at`,
+    )
+    .run(email.toLowerCase(), adminEmail.toLowerCase(), by, Date.now());
 }
 
 async function request(email: string, op: Op, input?: unknown): Promise<Response> {
@@ -45,7 +75,7 @@ async function request(email: string, op: Op, input?: unknown): Promise<Response
     res = await fetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ email: agendaEmail(email), op, input }),
+      body: JSON.stringify({ email, op, input }),
       cache: "no-store",
       signal: AbortSignal.timeout(20_000),
     });
@@ -66,10 +96,16 @@ async function request(email: string, op: Op, input?: unknown): Promise<Response
   return res;
 }
 
+/** `email`: el buzón de rud1 Mail; se habla con admin como su cuenta enlazada. */
 export async function agendaCall<T>(email: string, op: Exclude<Op, "ics">, input?: unknown): Promise<T> {
-  return (await (await request(email, op, input)).json()) as T;
+  return (await (await request(adminEmailFor(email), op, input)).json()) as T;
 }
 
 export async function agendaIcs(email: string): Promise<string> {
-  return (await request(email, "ics")).text();
+  return (await request(adminEmailFor(email), "ics")).text();
+}
+
+/** Comprueba una cuenta de admin (para enlazarla): de quién es, o error si no existe. */
+export async function checkAdminAccount(adminEmail: string): Promise<AgendaMe> {
+  return (await (await request(adminEmail.toLowerCase(), "me")).json()) as AgendaMe;
 }
