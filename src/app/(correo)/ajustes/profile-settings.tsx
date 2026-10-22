@@ -23,6 +23,7 @@ import { ToggleSwitch } from "@/shared/components/ui/toggle-switch";
 
 import { Avatar } from "../avatar";
 import { useNotificationPermission } from "../mail-watcher";
+import { DesktopSettings } from "./desktop-settings";
 import { TemplateEditor, type TemplateVariable } from "./template-editor";
 
 interface ProfileFields {
@@ -245,6 +246,8 @@ export function ProfileSettings({
           description="Si no, vuelves a la lista."
         />
       </Section>
+
+      <DesktopSettings delay={150} />
 
       <Section title="Seguridad" delay={180}>
         <div className="flex flex-wrap items-center justify-between gap-3">

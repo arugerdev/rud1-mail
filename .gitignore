@@ -13,6 +13,8 @@ node_modules/
 .next/
 out/
 build/
+# Los iconos de la app de escritorio (electron-builder los coge de aquí).
+!desktop/build/
 dist/
 
 # Production

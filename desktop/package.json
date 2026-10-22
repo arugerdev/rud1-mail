@@ -1,6 +1,6 @@
 {
   "name": "rud1-mail-desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "rud1 Mail",
   "main": "dist/main.js",
   "author": "rud1 <noreply@rud1.es>",
@@ -16,6 +16,9 @@
     "dist:win": "npm run build && electron-builder --win --publish never",
     "dist:mac": "npm run build && electron-builder --mac --publish never",
     "dist:linux": "npm run build && electron-builder --linux --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.10"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
@@ -39,7 +42,10 @@
       "assets/**/*",
       "package.json"
     ],
-    "publish": null,
+    "publish": {
+      "provider": "generic",
+      "url": "https://github.com/arugerdev/rud1-mail/releases/latest/download"
+    },
     "protocols": [
       {
         "name": "Correo electrónico",
@@ -57,7 +63,8 @@
           ]
         }
       ],
-      "artifactName": "rud1-Mail-Setup.${ext}"
+      "artifactName": "rud1-Mail-Setup.${ext}",
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": true,
@@ -76,11 +83,19 @@
             "x64",
             "arm64"
           ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "category": "public.app-category.productivity",
       "identity": null,
-      "artifactName": "rud1-Mail-${arch}.${ext}"
+      "artifactName": "rud1-Mail-${arch}.${ext}",
+      "icon": "build/icon.png"
     },
     "dmg": {
       "title": "rud1 Mail"

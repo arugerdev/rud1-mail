@@ -25,6 +25,7 @@ import {
   resolveAppUrl,
   unreadFromTitle,
 } from "./url";
+import { Updates } from "./updates";
 
 /**
  * rud1 Mail para escritorio: una ventana que abre mail.rud1.es, con lo que
@@ -60,6 +61,18 @@ let quitting = false;
 let trayHintShown = false;
 /** mailto: que llegó antes de que la ventana estuviera lista. */
 let pendingMailto: string | null = mailtoFromArgv(process.argv);
+
+const updates = new Updates(
+  () => win,
+  (info) => {
+    win?.webContents.send("rud1:updates", info);
+    buildMenu();
+    rebuildTrayMenu();
+  },
+  () => {
+    quitting = true;
+  },
+);
 
 // --- Una sola instancia: abrir otra vez la app trae la ventana al frente. ---
 
@@ -255,6 +268,50 @@ function createWindow(): void {
   void win.loadURL(mailto ? mailtoRoute(APP_ORIGIN, mailto) : APP_ORIGIN);
 }
 
+// --- Avisos del sistema. ---
+
+/**
+ * Los avisos los muestra la app, no la página: los de la página (Notification
+ * de HTML) dependen de permisos del navegador y en Windows a veces no salen.
+ * Van sin sonido del sistema: la página pone el suyo (elegido por cada uno).
+ */
+/** Lo último que dijo el sistema al mostrar un aviso (p. ej. "desactivados en Windows"). */
+let notificationError: string | null = null;
+
+function showNotification(payload: unknown): void {
+  if (!Notification.isSupported() || typeof payload !== "object" || payload === null) return;
+  const { title, body, url } = payload as { title?: unknown; body?: unknown; url?: unknown };
+  if (typeof title !== "string") return;
+  const n = new Notification({
+    title: title.slice(0, 200),
+    body: typeof body === "string" ? body.slice(0, 500) : "",
+    icon: path.join(ASSETS, "icon.png"),
+    silent: true,
+  });
+  n.on("click", () => {
+    showWindow();
+    // Solo rutas de la propia app ("/?mensaje=…").
+    if (typeof url === "string" && url.startsWith("/") && !url.startsWith("//")) {
+      win?.webContents.send("rud1:navigate", url);
+    }
+  });
+  n.on("show", () => {
+    notificationError = null;
+  });
+  // Windows los rechaza si el usuario tiene los avisos desactivados (para
+  // todo el equipo o para la app): se le dice en Ajustes de rud1 Mail.
+  n.on("failed", (_event, error) => {
+    notificationError = error;
+    win?.webContents.send("rud1:notify-failed", error);
+  });
+  n.show();
+}
+
+function openNotificationSettings(): void {
+  if (isWindows) void shell.openExternal("ms-settings:notifications");
+  else if (isMac) void shell.openExternal("x-apple.systempreferences:com.apple.preference.notifications");
+}
+
 // --- Contador en el icono (barra de tareas, Dock, bandeja). ---
 
 let badgeIcon: Electron.NativeImage | null = null;
@@ -271,11 +328,48 @@ function updateUnread(count: number): void {
 
 // --- Bandeja del sistema (Windows y Linux). ---
 
+function updateMenuItems(): MenuItemConstructorOptions[] {
+  const info = updates.info();
+  const s = info.status;
+  const label =
+    s.state === "ready"
+      ? `Reiniciar y actualizar a ${s.version}`
+      : s.state === "downloading"
+        ? `Descargando ${s.version}… ${s.percent} %`
+        : s.state === "available"
+          ? info.canInstall
+            ? `Instalar la versión ${s.version}`
+            : `Descargar la versión ${s.version}`
+          : s.state === "checking"
+            ? "Buscando actualizaciones…"
+            : "Buscar actualizaciones";
+  return [
+    { label: `rud1 Mail ${info.version}`, enabled: false },
+    {
+      label,
+      enabled: s.state !== "checking" && s.state !== "downloading",
+      click: () => void (s.state === "ready" || s.state === "available" ? updates.installNow() : updates.check()),
+    },
+    {
+      label: "Actualizar automáticamente",
+      type: "checkbox",
+      checked: info.autoUpdate,
+      click: (item) => updates.setAutoUpdate(item.checked),
+    },
+  ];
+}
+
 function createTray(): void {
   if (isMac) return;
   const image = nativeImage.createFromPath(path.join(ASSETS, isWindows ? "tray.ico" : "tray.png"));
   tray = new Tray(image);
   tray.setToolTip("rud1 Mail");
+  rebuildTrayMenu();
+  tray.on("click", showWindow);
+}
+
+function rebuildTrayMenu(): void {
+  if (!tray) return;
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Abrir rud1 Mail", click: showWindow },
@@ -301,6 +395,8 @@ function createTray(): void {
           ]
         : []),
       { type: "separator" },
+      ...updateMenuItems(),
+      { type: "separator" },
       {
         label: "Salir",
         click: () => {
@@ -310,7 +406,6 @@ function createTray(): void {
       },
     ]),
   );
-  tray.on("click", showWindow);
 }
 
 // --- Menú de la aplicación (en Windows y Linux, oculto hasta pulsar Alt). ---
@@ -351,6 +446,7 @@ function buildMenu(): void {
       ],
     },
     { role: "windowMenu", label: "Ventana" },
+    { label: "Ayuda", submenu: updateMenuItems() },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -371,10 +467,29 @@ app.whenReady().then(() => {
   session.defaultSession.setSpellCheckerLanguages(["es-ES", "en-US"]);
 
   ipcMain.on("rud1:focus", showWindow);
+  ipcMain.on("rud1:notify", (event, payload: unknown) => {
+    if (isAppUrl(event.senderFrame?.url ?? "", APP_ORIGIN)) showNotification(payload);
+  });
+  // Ajustes de actualización desde la página (Ajustes → App de escritorio).
+  const fromApp = (event: Electron.IpcMainInvokeEvent) => isAppUrl(event.senderFrame?.url ?? "", APP_ORIGIN);
+  ipcMain.handle("rud1:notify:status", (event) => (fromApp(event) ? { error: notificationError } : null));
+  ipcMain.on("rud1:notify:settings", (event) => {
+    if (isAppUrl(event.senderFrame?.url ?? "", APP_ORIGIN)) openNotificationSettings();
+  });
+  ipcMain.handle("rud1:updates:get", (event) => (fromApp(event) ? updates.info() : null));
+  ipcMain.handle("rud1:updates:check", (event) => (fromApp(event) ? updates.check() : null));
+  ipcMain.handle("rud1:updates:auto", (event, enabled: unknown) =>
+    fromApp(event) && typeof enabled === "boolean" ? updates.setAutoUpdate(enabled) : null,
+  );
+  ipcMain.handle("rud1:updates:install", async (event) => {
+    if (fromApp(event)) await updates.installNow();
+    return updates.info();
+  });
 
   buildMenu();
   createTray();
   createWindow();
+  updates.start();
 
   app.on("activate", showWindow);
 });

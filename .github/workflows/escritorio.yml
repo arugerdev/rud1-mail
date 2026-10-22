@@ -3,7 +3,9 @@ name: Instaladores de escritorio
 # Genera los instaladores de rud1 Mail para Windows, macOS y Linux.
 # - A mano (Actions → "Instaladores de escritorio" → Run workflow): se descargan
 #   desde la propia ejecución, en "Artifacts".
-# - Con una etiqueta escritorio-vX.Y.Z: además se publican en una Release.
+# - Con una etiqueta escritorio-vX.Y.Z: además se publican en una Release, y
+#   las apps ya instaladas se actualizan solas desde ella (latest*.yml).
+#   La etiqueta tiene que coincidir con "version" de desktop/package.json.
 
 on:
   workflow_dispatch:
@@ -27,17 +29,23 @@ jobs:
             script: dist:win
             files: |
               desktop/release/*.exe
+              desktop/release/*.blockmap
+              desktop/release/latest.yml
           - name: macOS
             os: macos-latest
             script: dist:mac
             files: |
               desktop/release/*.dmg
+              desktop/release/*.zip
+              desktop/release/*.blockmap
+              desktop/release/latest-mac.yml
           - name: Linux
             os: ubuntu-latest
             script: dist:linux
             files: |
               desktop/release/*.AppImage
               desktop/release/*.deb
+              desktop/release/latest-linux.yml
     defaults:
       run:
         working-directory: desktop
@@ -49,6 +57,16 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: desktop/package-lock.json
+
+      - name: Comprobar la versión
+        if: startsWith(github.ref, 'refs/tags/escritorio-v')
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "escritorio-v$VERSION" != "${GITHUB_REF_NAME}" ]; then
+            echo "La etiqueta ${GITHUB_REF_NAME} no coincide con la versión $VERSION de package.json" >&2
+            exit 1
+          fi
 
       - name: Instalar dependencias
         run: npm ci

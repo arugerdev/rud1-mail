@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 
 import { setAppBadge } from "../pwa";
+import { desktopBridge } from "./desktop-bridge";
 import { mailHref } from "./nav";
 
 interface NewMail {
@@ -20,16 +21,6 @@ export interface WatcherPrefs {
   sound: boolean;
 }
 
-/** Lo que expone la app de escritorio (desktop/src/preload.ts). */
-interface DesktopBridge {
-  isDesktop: true;
-  focus: () => void;
-}
-
-function desktopBridge(): DesktopBridge | undefined {
-  return (window as Window & { rud1Desktop?: DesktopBridge }).rud1Desktop;
-}
-
 async function notify(mail: NewMail, open: (url: string) => void, override?: { title: string; url: string }) {
   const title = override?.title ?? (mail.from ? `Correo de ${mail.from}` : "Correo nuevo");
   const url = override?.url ?? (mail.uid ? mailHref({ mensaje: mail.uid }) : "/");
@@ -40,8 +31,13 @@ async function notify(mail: NewMail, open: (url: string) => void, override?: { t
     tag: `rud1-mail-${mail.uid ?? Date.now()}`,
     data: { url },
   };
-  // En la app de escritorio, el aviso del sistema trae la ventana al frente al pulsarlo.
+  // En la app de escritorio el aviso lo muestra la propia app (al pulsarlo
+  // trae la ventana al frente y abre el mensaje).
   const desktop = desktopBridge();
+  if (desktop?.notify) {
+    desktop.notify({ title, body: mail.subject, url });
+    return;
+  }
   if (desktop) {
     const n = new Notification(title, options);
     n.onclick = () => {
@@ -78,6 +74,12 @@ function chime() {
   } catch {
     // Sin audio no pasa nada.
   }
+}
+
+/** En la app de escritorio no hace falta el permiso del navegador. */
+function canNotify(): boolean {
+  if (desktopBridge()?.notify) return true;
+  return "Notification" in window && Notification.permission === "granted";
 }
 
 export type LiveState = "conectando" | "en-directo" | "sin-conexion";
@@ -125,12 +127,7 @@ export function useMailWatcher(prefs: WatcherPrefs, sharedNames: Record<string, 
         refreshSoon();
         const away = document.visibilityState !== "visible" || !document.hasFocus();
         if (prefsRef.current.sound) chime();
-        if (
-          away &&
-          prefsRef.current.notify &&
-          "Notification" in window &&
-          Notification.permission === "granted"
-        ) {
+        if (away && prefsRef.current.notify && canNotify()) {
           void notify(mail, (url) => router.push(url)).catch(() => undefined);
         }
       });
@@ -151,7 +148,7 @@ export function useMailWatcher(prefs: WatcherPrefs, sharedNames: Record<string, 
             const name = namesRef.current[owner] ?? owner;
             const away = document.visibilityState !== "visible" || !document.hasFocus();
             if (prefsRef.current.sound) chime();
-            if (away && prefsRef.current.notify && "Notification" in window && Notification.permission === "granted") {
+            if (away && prefsRef.current.notify && canNotify()) {
               void notify({ uid: null, from: "", address: "", subject: `Ha llegado correo a ${owner}` }, (url) => router.push(url), {
                 title: `Correo nuevo en ${name}`,
                 url: mailHref({ carpeta: path }),
@@ -178,6 +175,12 @@ export function useMailWatcher(prefs: WatcherPrefs, sharedNames: Record<string, 
     connect();
     const onFocus = () => refreshSoon();
     window.addEventListener("focus", onFocus);
+    // Al pulsar un aviso de la app de escritorio, abre lo que avisaba.
+    const onNavigate = (event: Event) => {
+      const url = (event as CustomEvent<{ url?: string }>).detail?.url;
+      if (url?.startsWith("/") && !url.startsWith("//")) router.push(url);
+    };
+    window.addEventListener("rud1-desktop:navigate", onNavigate);
     return () => {
       stopped = true;
       source?.close();
@@ -185,6 +188,7 @@ export function useMailWatcher(prefs: WatcherPrefs, sharedNames: Record<string, 
       window.clearTimeout(refreshTimer);
       window.clearInterval(fallback);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener("rud1-desktop:navigate", onNavigate);
     };
   }, [router]);
 
@@ -196,7 +200,8 @@ export type NotificationState = "unsupported" | "default" | "granted" | "denied"
 export function useNotificationPermission(): [NotificationState, () => Promise<void>] {
   const [state, setState] = React.useState<NotificationState>("unsupported");
   React.useEffect(() => {
-    if ("Notification" in window) setState(Notification.permission as NotificationState);
+    if (desktopBridge()?.notify) setState("granted");
+    else if ("Notification" in window) setState(Notification.permission as NotificationState);
   }, []);
   const request = React.useCallback(async () => {
     if (!("Notification" in window)) return;
