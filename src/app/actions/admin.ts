@@ -460,16 +460,16 @@ export async function setAgendaLinkAction(email: string, adminEmail: string | nu
 
 /**
  * Enlace de un solo uso para abrir el buzón `email` en una pestaña nueva, sin
- * su contraseña. Solo los propietarios, y nunca en el buzón del otro
- * propietario (ni en el propio).
+ * su contraseña. Solo los propietarios (también entre ellos), y no desde
+ * dentro de otro buzón: la entrada quedaría apuntada a nombre de su dueño.
  */
 export async function enterMailboxAction(email: string): Promise<AdminResult & { url?: string }> {
   try {
     const user = await owner();
+    if (user.actingBy) return { ok: false, error: "Sal de este buzón y entra desde el tuyo." };
     if (!mailboxEntryAvailable()) return { ok: false, error: "La entrada en otros buzones no está configurada." };
     const target = email.toLowerCase();
     if (target === user.email) return { ok: false, error: "Ese es tu propio buzón." };
-    if (isOwner(target)) return { ok: false, error: "En el buzón de otro propietario no se puede entrar." };
     const box = await getMailbox(target);
     if (!box) return { ok: false, error: "Ese buzón no existe." };
     if (!box.active) return { ok: false, error: "El buzón está desactivado: actívalo antes de entrar." };

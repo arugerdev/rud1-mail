@@ -461,7 +461,7 @@ export function UsersSettings({
                 <p className="text-foreground/80">{relative(row.lastLogin)}</p>
               </div>
               <QuotaBar used={row.usedBytes} total={row.quotaBytes} />
-              {canEnter && row.username !== me && !row.access?.owner && <EnterButton row={row} />}
+              {canEnter && row.username !== me && <EnterButton row={row} />}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="icon" aria-label={`Acciones de ${row.username}`}>

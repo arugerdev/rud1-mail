@@ -60,7 +60,7 @@ export default async function UsersPage() {
       roles={listRoles()}
       canManageAccess={isOwner(user.email)}
       agenda={agendaConfigured()}
-      canEnter={isOwner(user.email) && mailboxEntryAvailable()}
+      canEnter={isOwner(user.email) && !user.actingBy && mailboxEntryAvailable()}
     />
   );
 }
