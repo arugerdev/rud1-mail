@@ -82,7 +82,7 @@ function transport(credentials: Credentials) {
     port: config.smtp.port,
     secure: config.smtp.port === 465,
     requireTLS: config.smtp.port !== 465,
-    auth: { user: credentials.email, pass: credentials.password },
+    auth: { user: credentials.login ?? credentials.email, pass: credentials.password },
     tls: { servername: config.smtp.servername },
     connectionTimeout: 20_000,
     greetingTimeout: 20_000,

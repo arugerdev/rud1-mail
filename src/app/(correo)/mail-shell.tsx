@@ -14,6 +14,7 @@ import {
   Folder as FolderIcon,
   HardDrive,
   Inbox,
+  DoorOpen,
   KeyRound,
   LogOut,
   Menu,
@@ -70,6 +71,8 @@ const FOLDER_ICONS: Record<SpecialUse, LucideIcon> = {
 export interface ShellUser {
   name: string;
   email: string;
+  /** Propietario que está dentro de este buzón desde Administración (pestaña de acceso). */
+  actingBy?: string;
 }
 
 /** Cuántos se señalan junto a cada carpeta: sin leer, salvo en borradores (todos). */
@@ -296,13 +299,15 @@ function AccountMenu({ user }: { user: ShellUser }) {
               <BellOff className="size-4" /> Avisos bloqueados en el navegador
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem asChild>
-            <Link href="/cambiar-contrasena">
-              <KeyRound className="size-4" /> Cambiar la contraseña
-            </Link>
-          </DropdownMenuItem>
+          {!user.actingBy && (
+            <DropdownMenuItem asChild>
+              <Link href="/cambiar-contrasena">
+                <KeyRound className="size-4" /> Cambiar la contraseña
+              </Link>
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={() => void signOut()}>
-            <LogOut className="size-4" /> Cerrar sesión
+            <LogOut className="size-4" /> {user.actingBy ? "Salir de este buzón" : "Cerrar sesión"}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -583,9 +588,10 @@ export function MailShell({
   React.useEffect(() => {
     const unread = inbox?.unread ?? 0;
     const place = section ?? folderName;
-    document.title = unread > 0 ? `(${unread}) ${place} · rud1 Mail` : `${place} · rud1 Mail`;
-    setAppBadge(unread);
-  }, [inbox?.unread, folderName, section]);
+    const who = user.actingBy ? `${user.email} · ` : "";
+    document.title = unread > 0 ? `(${unread}) ${who}${place} · rud1 Mail` : `${who}${place} · rud1 Mail`;
+    if (!user.actingBy) setAppBadge(unread);
+  }, [inbox?.unread, folderName, section, user.actingBy, user.email]);
 
   const body = (
     <SidebarBody user={user} folders={folders} current={current} isAdmin={isAdmin} apps={apps} pathname={pathname} sharedNames={sharedNames} />
@@ -620,11 +626,28 @@ export function MailShell({
             <ThemeToggle labels={THEME_LABELS} />
           </div>
         </header>
+        {user.actingBy && <ActingBanner user={user} />}
         <NotificationBanner enabled={prefs.notify} />
         <main className="flex min-h-0 flex-1">{children}</main>
       </div>
       <ComposeFab />
-      {apps.agenda && <AgendaReminders />}
+      {apps.agenda && !user.actingBy && <AgendaReminders />}
+    </div>
+  );
+}
+
+/** Siempre a la vista cuando un propietario está dentro del buzón de otra persona. */
+function ActingBanner({ user }: { user: ShellUser }) {
+  return (
+    <div className="flex shrink-0 items-center gap-3 border-b border-amber-500/30 bg-amber-500/15 px-3 py-2 text-sm text-amber-900 md:px-4 dark:text-amber-200">
+      <DoorOpen className="size-4 shrink-0" />
+      <p className="line-clamp-2 min-w-0 flex-1 md:truncate">
+        Estás dentro del buzón de <strong>{user.name !== user.email ? `${user.name} (${user.email})` : user.email}</strong>. Lo que hagas
+        aquí cuenta como suyo.
+      </p>
+      <Button size="sm" variant="outline" className="h-7 shrink-0 border-amber-600/40 bg-transparent" onClick={() => void signOut()}>
+        <LogOut /> Salir
+      </Button>
     </div>
   );
 }

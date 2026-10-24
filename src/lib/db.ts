@@ -153,6 +153,19 @@ const MIGRATIONS: string[] = [
     updated_at INTEGER NOT NULL
   );
   `,
+  // 7: entradas de los propietarios en buzones ajenos (enlace de un solo uso y registro)
+  `
+  CREATE TABLE mailbox_entries (
+    token_hash TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    by_email TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used_at INTEGER,
+    ip TEXT
+  );
+  CREATE INDEX mailbox_entries_email ON mailbox_entries (email, created_at);
+  `,
 ];
 
 function open(): Database.Database {

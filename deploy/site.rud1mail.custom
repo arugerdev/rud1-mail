@@ -56,6 +56,10 @@ location ^~ /archivos {
 location ^~ /f/ {
     include /etc/nginx/conf.d/rud1mail.proxy;
 }
+# Enlace de un solo uso para entrar en el buzón de otra persona (acceso.mail.rud1.es).
+location ^~ /acceder/ {
+    include /etc/nginx/conf.d/rud1mail.proxy;
+}
 # Subidas y descargas de Archivos: grandes y largas, sin pasar enteras por Nginx.
 location ^~ /api/archivos {
     proxy_pass $rud1mail;

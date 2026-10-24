@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { can } from "@/lib/access";
 import { config } from "@/lib/config";
 import { closeConnections, ImapAuthError, verifyCredentials } from "@/lib/imap";
+import { onAccessHost } from "@/lib/mailbox-entry";
 import { getMailbox, MailcowError, mailcowAvailable, setMailboxPassword } from "@/lib/mailcow";
 import { blockedMinutes, registerFailure, registerSuccess } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/request";
@@ -21,6 +22,8 @@ const GENERIC_LOGIN_ERROR = "La dirección o la contraseña no son correctas.";
 export async function signIn(_prev: FormState, formData: FormData): Promise<FormState> {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
+  // La dirección de acceso es solo para entrar desde Administración.
+  if (await onAccessHost()) return { error: "Aquí no se puede entrar con contraseña. Ve a mail.rud1.es.", email };
   if (!email || !password) return { error: "Escribe tu dirección y tu contraseña.", email };
   if (!email.endsWith(`@${config.domain}`)) {
     return { error: `Solo se puede entrar con una dirección @${config.domain}.`, email };
@@ -77,9 +80,11 @@ export async function signIn(_prev: FormState, formData: FormData): Promise<Form
 
 export async function signOut(): Promise<void> {
   const session = await getSession();
-  if (session.email) await closeConnections(session.email);
+  const acting = Boolean(session.actingBy);
+  // Al salir de un buzón ajeno no se cierran las conexiones de su dueño.
+  if (session.email && !acting) await closeConnections(session.email);
   session.destroy();
-  redirect("/entrar");
+  redirect(acting ? "/entrar?acceso=cerrado" : "/entrar");
 }
 
 const MIN_PASSWORD = 12;
@@ -94,6 +99,7 @@ function passwordProblem(password: string, email: string): string | null {
 export async function changePassword(_prev: FormState, formData: FormData): Promise<FormState> {
   const user = await currentUser();
   if (!user) redirect("/entrar");
+  if (user.actingBy) return { error: "La contraseña solo la puede cambiar su dueño (o tú, desde Administración)." };
 
   const current = String(formData.get("current") ?? "");
   const next = String(formData.get("password") ?? "");

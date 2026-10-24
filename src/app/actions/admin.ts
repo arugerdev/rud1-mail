@@ -29,9 +29,11 @@ import {
   deleteMailbox,
   editAlias,
   editMailbox,
+  getMailbox,
   listMailboxes,
   MailcowError,
 } from "@/lib/mailcow";
+import { createEntryLink, mailboxEntryAvailable } from "@/lib/mailbox-entry";
 import { PERMISSION_KEYS, ROLE_COLORS, type PermissionKey, type PermissionOverrides, type PermissionSet } from "@/lib/permissions";
 import { sanitizeAuthoredHtml } from "@/lib/mail/authoring";
 import { wrap } from "@/lib/mail/render";
@@ -451,5 +453,29 @@ export async function setAgendaLinkAction(email: string, adminEmail: string | nu
       return { ok: false, error: error.message };
     }
     return failure(error, "No se pudo enlazar la cuenta.");
+  }
+}
+
+// --- Entrar en el buzón de otra persona (lib/mailbox-entry.ts) ---
+
+/**
+ * Enlace de un solo uso para abrir el buzón `email` en una pestaña nueva, sin
+ * su contraseña. Solo los propietarios, y nunca en el buzón del otro
+ * propietario (ni en el propio).
+ */
+export async function enterMailboxAction(email: string): Promise<AdminResult & { url?: string }> {
+  try {
+    const user = await owner();
+    if (!mailboxEntryAvailable()) return { ok: false, error: "La entrada en otros buzones no está configurada." };
+    const target = email.toLowerCase();
+    if (target === user.email) return { ok: false, error: "Ese es tu propio buzón." };
+    if (isOwner(target)) return { ok: false, error: "En el buzón de otro propietario no se puede entrar." };
+    const box = await getMailbox(target);
+    if (!box) return { ok: false, error: "Ese buzón no existe." };
+    if (!box.active) return { ok: false, error: "El buzón está desactivado: actívalo antes de entrar." };
+    console.info(`[acceso] ${user.email} pide entrar en el buzón de ${target}`);
+    return { ok: true, url: createEntryLink(target, user.email) };
+  } catch (error) {
+    return failure(error, "No se pudo preparar la entrada.");
   }
 }

@@ -1,9 +1,17 @@
 import type { Metadata } from "next";
 
-import { getUserAccess, isOwner, isSystemMailbox, listRoles, permissionsFor, teamsOf } from "@/lib/access";
+import {
+  getUserAccess,
+  isOwner,
+  isSystemMailbox,
+  listRoles,
+  permissionsFor,
+  teamsOf,
+} from "@/lib/access";
 import { requirePermission } from "@/lib/admin";
 import { agendaConfigured, agendaLinks } from "@/lib/agenda";
 import { config } from "@/lib/config";
+import { mailboxEntryAvailable } from "@/lib/mailbox-entry";
 import { listMailboxes, mailcowAvailable } from "@/lib/mailcow";
 import { fullName, getProfile } from "@/lib/profiles";
 
@@ -14,7 +22,12 @@ export const dynamic = "force-dynamic";
 
 export default async function UsersPage() {
   const user = await requirePermission("admin.buzones");
-  if (!mailcowAvailable()) return <p className="text-sm text-muted-foreground">La administración no está disponible ahora mismo.</p>;
+  if (!mailcowAvailable())
+    return (
+      <p className="text-sm text-muted-foreground">
+        La administración no está disponible ahora mismo.
+      </p>
+    );
   const boxes = await listMailboxes(config.domain);
   const links = agendaLinks();
   const rows = boxes.map((b) => {
@@ -26,7 +39,10 @@ export default async function UsersPage() {
           owner: isOwner(b.username),
           system: isSystemMailbox(b.username),
           effective: permissionsFor(b.username),
-          teams: teamsOf(b.username).map((t) => ({ name: t.name, color: t.color })),
+          teams: teamsOf(b.username).map((t) => ({
+            name: t.name,
+            color: t.color,
+          })),
         };
     return {
       ...b,
@@ -36,5 +52,15 @@ export default async function UsersPage() {
       agendaLink: links.get(b.username) ?? null,
     };
   });
-  return <UsersSettings rows={rows} me={user.email} domain={config.domain} roles={listRoles()} canManageAccess={isOwner(user.email)} agenda={agendaConfigured()} />;
+  return (
+    <UsersSettings
+      rows={rows}
+      me={user.email}
+      domain={config.domain}
+      roles={listRoles()}
+      canManageAccess={isOwner(user.email)}
+      agenda={agendaConfigured()}
+      canEnter={isOwner(user.email) && mailboxEntryAvailable()}
+    />
+  );
 }

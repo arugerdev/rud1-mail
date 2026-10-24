@@ -33,22 +33,24 @@ interface PooledClient {
 const globalPool = globalThis as unknown as { __rud1MailPool?: Map<string, PooledClient> };
 const pool = (globalPool.__rud1MailPool ??= new Map<string, PooledClient>());
 
-function poolKey(email: string, password: string): string {
-  return `${email}:${createHash("sha256").update(password).digest("hex").slice(0, 16)}`;
+function poolKey({ email, password, login }: Credentials): string {
+  return `${email}:${createHash("sha256").update(`${login ?? email}:${password}`).digest("hex").slice(0, 16)}`;
 }
 
 export interface Credentials {
   email: string;
   password: string;
+  /** Usuario con el que se entra, si no es la propia dirección (el usuario maestro, al entrar como otra persona). */
+  login?: string;
 }
 
-function newClient({ email, password }: Credentials, clientIp?: string): ImapFlow {
+function newClient({ email, password, login }: Credentials, clientIp?: string): ImapFlow {
   return new ImapFlow({
     host: config.imap.host,
     port: config.imap.port,
     secure: config.imap.port === 993,
     servername: config.imap.servername,
-    auth: { user: email, pass: password },
+    auth: { user: login ?? email, pass: password },
     logger: false,
     // Dovecot apunta la IP real de quien entra (para los bloqueos por fuerza
     // bruta) si la red de la aplicación está entre sus redes de confianza.
@@ -95,7 +97,7 @@ export async function verifyCredentials(credentials: Credentials, clientIp?: str
 }
 
 async function getClient(credentials: Credentials): Promise<ImapFlow> {
-  const key = poolKey(credentials.email, credentials.password);
+  const key = poolKey(credentials);
   const existing = pool.get(key);
   if (existing && existing.client.usable && Date.now() - existing.createdAt < MAX_AGE_MS) {
     await existing.ready;

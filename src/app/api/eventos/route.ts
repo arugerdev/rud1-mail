@@ -33,7 +33,7 @@ export async function GET(request: Request) {
     port: config.imap.port,
     secure: config.imap.port === 993,
     servername: config.imap.servername,
-    auth: { user: user.email, pass: user.password },
+    auth: { user: user.login ?? user.email, pass: user.password },
     logger: false,
     clientInfo: { name: "rud1 Mail (tiempo real)", ...(ip ? { "x-originating-ip": ip } : {}) },
   });

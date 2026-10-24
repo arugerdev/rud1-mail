@@ -12,6 +12,7 @@ export const metadata: Metadata = { title: "Cambiar la contraseña" };
 export default async function ChangePasswordPage() {
   const user = await currentUser();
   if (!user) redirect("/entrar");
+  if (user.actingBy) redirect("/");
 
   return (
     <AuthCard

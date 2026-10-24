@@ -24,6 +24,8 @@ export default async function MailLayout({ children }: { children: React.ReactNo
   ]);
   const profile = getProfile(user.email, user.name);
   const name = fullName(profile) !== user.email ? fullName(profile) : user.name;
+  // Un propietario dentro de este buzón: ni sonidos ni avisos (no son para él).
+  const acting = Boolean(user.actingBy);
   const nameOf = (address: string) => directory.find((d) => d.address === address)?.name ?? address;
 
   const sharedNames = Object.fromEntries(
@@ -37,12 +39,12 @@ export default async function MailLayout({ children }: { children: React.ReactNo
 
   return (
     <AvatarProvider versions={avatarVersions()}>
-      <SoundProvider enabled={profile.prefs.sound} prefs={profile.prefs.sounds}>
+      <SoundProvider enabled={profile.prefs.sound && !acting} prefs={profile.prefs.sounds}>
         <ComposeProvider userEmail={user.email} identities={identities}>
           <MailShell
-            user={{ name, email: user.email }}
+            user={{ name, email: user.email, actingBy: user.actingBy }}
             folders={folders}
-            prefs={{ notify: profile.prefs.notify }}
+            prefs={{ notify: profile.prefs.notify && !acting }}
             isAdmin={isAdmin(user.email)}
             apps={{ files: can(user.email, "archivos.usar"), agenda: agendaConfigured() }}
             sharedNames={sharedNames}

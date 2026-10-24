@@ -108,6 +108,22 @@ if ! grep -q "^SKIP_SOGO=y" mailcow.conf; then
   echo "   SOGo desactivado"
 fi
 
+# 3c. acceso.mail.rud1.es (entrar en otros buzones desde Administración): el
+#     certificado y Nginx también responden a ese nombre. El registro DNS va
+#     aparte, en Cloudflare (sin proxy), apuntando a este servidor.
+ACCESS_NAME=acceso.mail.rud1.es
+for VAR in ADDITIONAL_SAN ADDITIONAL_SERVER_NAMES; do
+  if ! grep -qE "^$VAR=.*$ACCESS_NAME" mailcow.conf; then
+    if grep -qE "^$VAR=.+" mailcow.conf; then
+      sed -i -E "s|^($VAR=.+)$|\1,$ACCESS_NAME|" mailcow.conf
+    else
+      sed -i -E "s|^$VAR=.*$|$VAR=$ACCESS_NAME|" mailcow.conf
+    fi
+    RESTART_MAILCOW=1
+    echo "   $VAR: $ACCESS_NAME"
+  fi
+done
+
 if [ "$RESTART_MAILCOW" = 1 ]; then
   docker compose up -d >/dev/null 2>&1
 fi

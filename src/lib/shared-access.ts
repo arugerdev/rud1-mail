@@ -30,15 +30,24 @@ export function sharedAccessAvailable(): boolean {
   return Boolean(MASTER_USER && MASTER_PASS);
 }
 
+/**
+ * Usuario y contraseña para entrar en el buzón `email` con el usuario maestro
+ * (IMAP y SMTP). Solo para el servidor: nunca va a una cookie ni al navegador.
+ */
+export function masterLogin(email: string): { login: string; password: string } {
+  if (!MASTER_USER || !MASTER_PASS) throw new SharedAccessUnavailableError();
+  return { login: `${email}*${MASTER_USER}`, password: MASTER_PASS };
+}
+
 /** Entra en el buzón `owner` como su dueño (usuario maestro) solo para esta operación. */
 async function asOwner<T>(owner: string, fn: (client: ImapFlow) => Promise<T>): Promise<T> {
-  if (!MASTER_USER || !MASTER_PASS) throw new SharedAccessUnavailableError();
+  const { login, password } = masterLogin(owner);
   const client = new ImapFlow({
     host: config.imap.host,
     port: config.imap.port,
     secure: config.imap.port === 993,
     servername: config.imap.servername,
-    auth: { user: `${owner}*${MASTER_USER}`, pass: MASTER_PASS },
+    auth: { user: login, pass: password },
     logger: false,
     clientInfo: { name: "rud1 Mail (administración)" },
     disableAutoIdle: true,

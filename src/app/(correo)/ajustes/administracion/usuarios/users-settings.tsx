@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   Copy,
+  DoorOpen,
   KeyRound,
   Loader2,
   MoreHorizontal,
@@ -21,10 +22,12 @@ import { toast } from "sonner";
 import {
   createMailboxAction,
   deleteMailboxAction,
+  enterMailboxAction,
   resetPasswordAction,
   setMailboxActiveAction,
   type AdminResult,
 } from "@/app/actions/admin";
+import { desktopBridge } from "@/app/(correo)/desktop-bridge";
 import type { MailboxInfo } from "@/lib/mailcow";
 import type { PermissionSet, Role } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
@@ -100,6 +103,47 @@ function QuotaBar({ used, total }: { used: number; total: number }) {
 }
 
 /** La contraseña provisional se enseña una sola vez, con botón de copiar. */
+/**
+ * Abre el buzón en una pestaña nueva, en la dirección de acceso: la sesión de
+ * aquí no cambia. La pestaña se abre al pulsar (si no, el navegador la
+ * bloquearía) y luego se le da el enlace de un solo uso.
+ */
+function EnterButton({ row }: { row: UserRow }) {
+  const [busy, setBusy] = React.useState(false);
+  const enter = async () => {
+    const desktop = desktopBridge();
+    // En la app de escritorio, el enlace se abre en el navegador.
+    const tab = desktop ? null : window.open("", "_blank");
+    if (tab) {
+      tab.opener = null;
+      tab.document.title = "Entrando…";
+    }
+    setBusy(true);
+    try {
+      const r = await enterMailboxAction(row.username);
+      if (!r.ok || !r.url) {
+        tab?.close();
+        toast.error(r.error ?? "No se pudo entrar en el buzón.");
+      } else if (tab) {
+        tab.location.href = r.url;
+      } else {
+        window.open(r.url, "_blank", "noopener");
+      }
+    } catch {
+      tab?.close();
+      toast.error("No se pudo entrar en el buzón.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const label = row.active ? `Entrar en el buzón de ${row.displayName} (pestaña nueva)` : "El buzón está desactivado";
+  return (
+    <Button variant="ghost" size="icon" disabled={busy || !row.active} onClick={() => void enter()} aria-label={label} title={label}>
+      {busy ? <Loader2 className="animate-spin" /> : <DoorOpen />}
+    </Button>
+  );
+}
+
 function PasswordDialog({ data, onClose }: { data: { email: string; password: string } | null; onClose: () => void }) {
   return (
     <Dialog open={data !== null} onOpenChange={(o) => !o && onClose()}>
@@ -327,6 +371,7 @@ export function UsersSettings({
   roles,
   canManageAccess,
   agenda,
+  canEnter,
 }: {
   rows: UserRow[];
   me: string;
@@ -336,6 +381,8 @@ export function UsersSettings({
   canManageAccess: boolean;
   /** Si la agenda de admin.rud1.es está conectada. */
   agenda: boolean;
+  /** Propietario con la entrada en otros buzones configurada: botón de la puerta en cada fila. */
+  canEnter: boolean;
 }) {
   const [creating, setCreating] = React.useState(false);
   const [password, setPassword] = React.useState<{ email: string; password: string } | null>(null);
@@ -414,6 +461,7 @@ export function UsersSettings({
                 <p className="text-foreground/80">{relative(row.lastLogin)}</p>
               </div>
               <QuotaBar used={row.usedBytes} total={row.quotaBytes} />
+              {canEnter && row.username !== me && !row.access?.owner && <EnterButton row={row} />}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="icon" aria-label={`Acciones de ${row.username}`}>

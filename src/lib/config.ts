@@ -46,6 +46,13 @@ export const config = {
     if (secret.length < 32) throw new Error("SESSION_SECRET debe tener al menos 32 caracteres");
     return secret;
   },
+  /**
+   * Dirección aparte desde la que los propietarios entran en el buzón de otra
+   * persona (https://acceso.mail.rud1.es). Al ser otro nombre, su cookie no se
+   * mezcla con la de mail.rud1.es: la sesión propia sigue intacta en su pestaña.
+   * Sin ella, el botón de entrar no aparece.
+   */
+  accessOrigin: process.env.ACCESS_ORIGIN?.replace(/\/+$/, "") || null,
   /** Las cookies solo viajan por https salvo en desarrollo local. */
   secureCookies: process.env.NODE_ENV === "production",
 };

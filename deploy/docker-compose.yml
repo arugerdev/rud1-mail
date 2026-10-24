@@ -23,6 +23,8 @@ x-app: &app
     SMTP_PORT: "587"
     MAIL_TLS_SERVERNAME: mail.rud1.es
     MAILCOW_API_URL: https://nginx/api/v1
+    # Dirección aparte para que los propietarios entren en otros buzones (lib/mailbox-entry.ts).
+    ACCESS_ORIGIN: https://acceso.mail.rud1.es
     # Contenido de Archivos (lib/storage.ts), aparte de la base de datos.
     FILES_DIR: /files
   volumes:
