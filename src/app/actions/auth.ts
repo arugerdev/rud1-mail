@@ -9,7 +9,7 @@ import { onAccessHost } from "@/lib/mailbox-entry";
 import { getMailbox, MailcowError, mailcowAvailable, setMailboxPassword } from "@/lib/mailcow";
 import { blockedMinutes, registerFailure, registerSuccess } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/request";
-import { currentUser, getSession } from "@/lib/session";
+import { currentUser, getSession, rememberDevice } from "@/lib/session";
 
 export interface FormState {
   error?: string;
@@ -22,6 +22,8 @@ const GENERIC_LOGIN_ERROR = "La dirección o la contraseña no son correctas.";
 export async function signIn(_prev: FormState, formData: FormData): Promise<FormState> {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
+  // Una casilla sin marcar no viaja en el formulario.
+  const remember = formData.get("remember") != null;
   // La dirección de acceso es solo para entrar desde Administración.
   if (await onAccessHost()) return { error: "Aquí no se puede entrar con contraseña. Ve a mail.rud1.es.", email };
   if (!email || !password) return { error: "Escribe tu dirección y tu contraseña.", email };
@@ -73,6 +75,7 @@ export async function signIn(_prev: FormState, formData: FormData): Promise<Form
   session.name = name;
   session.mustChangePassword = mustChangePassword;
   session.signedInAt = Date.now();
+  rememberDevice(session, remember);
   await session.save();
 
   redirect(mustChangePassword ? "/cambiar-contrasena" : "/");

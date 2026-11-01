@@ -33,6 +33,12 @@ interface PooledClient {
 const globalPool = globalThis as unknown as { __rud1MailPool?: Map<string, PooledClient> };
 const pool = (globalPool.__rud1MailPool ??= new Map<string, PooledClient>());
 
+// Contraseñas que el servidor ya ha rechazado (la cambiaron desde otro sitio):
+// no se vuelven a probar, porque cada intento fallido cuenta para el bloqueo
+// por fuerza bruta de Dovecot, y aquí saldría con la IP de la aplicación.
+const globalRejected = globalThis as unknown as { __rud1MailRejected?: Set<string> };
+const rejected = (globalRejected.__rud1MailRejected ??= new Set<string>());
+
 function poolKey({ email, password, login }: Credentials): string {
   return `${email}:${createHash("sha256").update(`${login ?? email}:${password}`).digest("hex").slice(0, 16)}`;
 }
@@ -70,6 +76,11 @@ export class ImapAuthError extends Error {
   }
 }
 
+/** ¿Ha rechazado ya el servidor esta contraseña? Una sesión recordada con la vieja deja de valer. */
+export function credentialsRejected(credentials: Credentials): boolean {
+  return rejected.has(poolKey(credentials));
+}
+
 function isAuthFailure(error: unknown): boolean {
   const e = error as { authenticationFailed?: boolean; serverResponseCode?: string; responseText?: string };
   return (
@@ -88,6 +99,8 @@ export async function verifyCredentials(credentials: Credentials, clientIp?: str
   const client = newClient(credentials, clientIp);
   try {
     await client.connect();
+    // Vuelve a valer (p. ej. le han devuelto la contraseña de antes).
+    rejected.delete(poolKey(credentials));
   } catch (error) {
     if (isAuthFailure(error)) throw new ImapAuthError();
     throw error;
@@ -98,6 +111,7 @@ export async function verifyCredentials(credentials: Credentials, clientIp?: str
 
 async function getClient(credentials: Credentials): Promise<ImapFlow> {
   const key = poolKey(credentials);
+  if (rejected.has(key)) throw new ImapAuthError();
   const existing = pool.get(key);
   if (existing && existing.client.usable && Date.now() - existing.createdAt < MAX_AGE_MS) {
     await existing.ready;
@@ -123,7 +137,10 @@ async function getClient(credentials: Credentials): Promise<ImapFlow> {
     await entry.ready;
   } catch (error) {
     pool.delete(key);
-    if (isAuthFailure(error)) throw new ImapAuthError();
+    if (isAuthFailure(error)) {
+      rejected.add(key);
+      throw new ImapAuthError();
+    }
     throw error;
   }
   return client;

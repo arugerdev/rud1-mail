@@ -1,7 +1,10 @@
+import { redirect } from "next/navigation";
+
 import { can } from "@/lib/access";
 import { agendaConfigured } from "@/lib/agenda";
 import { isAdmin } from "@/lib/admin";
 import { teamDirectory } from "@/lib/contacts";
+import { ImapAuthError } from "@/lib/imap";
 import { listFolders } from "@/lib/mail/folders";
 import { getMailbox, mailcowAvailable } from "@/lib/mailcow";
 import { avatarVersions, fullName, getProfile } from "@/lib/profiles";
@@ -18,7 +21,12 @@ export const dynamic = "force-dynamic";
 export default async function MailLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
   const [folders, directory, box] = await Promise.all([
-    listFolders(user),
+    listFolders(user).catch((error: unknown) => {
+      // La contraseña guardada ya no vale (la cambiaron desde otro sitio): la
+      // sesión deja de valer (lib/imap.ts) y se vuelve a la entrada.
+      if (error instanceof ImapAuthError) redirect("/entrar");
+      throw error;
+    }),
     teamDirectory(),
     mailcowAvailable() ? getMailbox(user.email).catch(() => null) : Promise.resolve(null),
   ]);

@@ -5,6 +5,7 @@ import { ArrowRight, Loader2, Mail } from "lucide-react";
 
 import { signIn, type FormState } from "@/app/actions/auth";
 import { Button } from "@/shared/components/ui/button";
+import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 
@@ -12,6 +13,7 @@ import { FormError, PasswordInput } from "../password-input";
 
 export function LoginForm({ domain }: { domain: string }) {
   const [state, action, pending] = React.useActionState<FormState, FormData>(signIn, {});
+  const [remember, setRemember] = React.useState(true);
 
   return (
     <form action={action} className="space-y-4">
@@ -39,6 +41,21 @@ export function LoginForm({ domain }: { domain: string }) {
       <div className="space-y-2">
         <Label htmlFor="password">Contraseña</Label>
         <PasswordInput id="password" name="password" autoComplete="current-password" disabled={pending} />
+      </div>
+
+      {/* Marcado, la sesión dura un año en este navegador; sin marcar, 12 horas. */}
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="remember"
+          name="remember"
+          // Controlada: tras un error el formulario se vacía, pero lo elegido se queda.
+          checked={remember}
+          onChange={(e) => setRemember(e.target.checked)}
+          disabled={pending}
+        />
+        <label htmlFor="remember" className="cursor-pointer text-sm text-muted-foreground">
+          Recordar dispositivo
+        </label>
       </div>
 
       <FormError message={state.error} />
