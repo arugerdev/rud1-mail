@@ -1,0 +1,478 @@
+#!/bin/bash
+# Agente de despliegues de rud1 Mail en el servidor de correo (mail.rud1.es).
+#
+# Hermano de rud1-deploy (el de la web, en rud1-es/deploy/web): mismas ordenes y
+# mismas respuestas JSON, para que admin.rud1.es/despliegues lea los dos igual.
+#
+# rud1 Mail corre en dos copias, a y b (deploy/docker-compose.yml). La version
+# nueva arranca en la libre, se comprueba, recibe el trafico (Nginx de Mailcow)
+# y se vigila un rato con la anterior todavia arrancada; si falla en cualquier
+# punto el trafico vuelve a la anterior y se avisa a los owners en el panel y
+# por correo.
+#
+#   status | history [n] | logs correo [n]          consultas (JSON)
+#   deploy [etiqueta|id] | rollback | unpin | auto on|off
+#   vigia      (temporizador cada minuto: salud + imagen nueva)
+#   panel      (unica entrada de la llave del panel, ver authorized_keys)
+
+set -uo pipefail
+
+CONF=/etc/rud1-mail-deploy
+ESTADO=/var/lib/rud1-mail-deploy
+HISTORIAL=$ESTADO/historial.jsonl
+APP=/opt/rud1-mail
+MAILCOW=/opt/mailcow-dockerized
+NGX=$MAILCOW/data/conf/nginx
+ENV_NOMBRE=correo
+LOCK=/run/lock/rud1-mail-deploy.lock
+
+# Lo que se puede cambiar en $CONF/agente.conf.
+IMAGEN=ghcr.io/arugerdev/rud1-mail
+ETIQUETA=master
+HOSTS="mail.rud1.es"
+# Segundos de vigilancia con la version anterior de reserva.
+VIGILANCIA=300
+AVISOS_URL=https://www.rud1.es/api/v1/correo/despliegues
+AVISOS_SECRETO=""
+AVISOS_CORREOS=""
+AVISOS_REMITENTE="rud1 despliegues <noreply@rud1.es>"
+
+umask 022
+mkdir -p "$ESTADO"
+# shellcheck disable=SC1091
+[ -f "$CONF/agente.conf" ] && source "$CONF/agente.conf"
+
+# --- utilidades -------------------------------------------------------------
+
+ahora() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+fallo() {
+    jq -cn --arg e "$1" '{ok:false,error:$e}'
+    exit 1
+}
+
+ok() { printf '{"ok":true,"data":%s}\n' "$1"; exit 0; }
+
+log() { logger -t rud1-mail-deploy -- "$*"; echo "$*" >&2; }
+
+valida_entorno() { [ "${1:-}" = "$ENV_NOMBRE" ] || fallo "el entorno ${1:-} no existe"; }
+
+bandera() { [ -f "$ESTADO/$1" ]; }
+
+hueco_activo() { cat "$APP/SLOT" 2>/dev/null || true; }
+otro_hueco() { [ "$1" = a ] && echo b || echo a; }
+ip_de() { [ "$1" = a ] && echo 172.22.1.240 || echo 172.22.1.241; }
+contenedor() { echo "rud1-mail-$1"; }
+
+existe_contenedor() { docker container inspect "$1" >/dev/null 2>&1; }
+corre() { [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = true ]; }
+
+release_de_imagen() {
+    docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$1" 2>/dev/null
+}
+
+# Las imagenes de antes del agente no llevan la etiqueta: su version la apunta
+# el agente al publicarlas (release-<copia>) o, la que servia al instalarlo, VERSION.
+release_de_hueco() {
+    local hueco="$1" r
+    r=$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$(contenedor "$hueco")" 2>/dev/null)
+    [ -n "$r" ] || r=$(cat "$ESTADO/release-$hueco" 2>/dev/null)
+    if [ -z "$r" ] && [ "$hueco" = "$(hueco_activo)" ]; then r=$(cat "$APP/VERSION" 2>/dev/null); fi
+    echo "$r"
+}
+
+registra() {
+    # registra <tipo> <release> <imagen> <detalle> [quien]
+    jq -cn --arg at "$(ahora)" --arg env "$ENV_NOMBRE" --arg kind "$1" --arg release "$2" \
+        --arg image "$3" --arg detail "$4" --arg by "${5:-sistema}" \
+        '{at:$at,env:$env,kind:$kind,release:$release,image:$image,detail:$detail,by:$by}' >> "$HISTORIAL"
+    if [ "$(wc -l < "$HISTORIAL")" -gt 2500 ]; then
+        tail -n 2000 "$HISTORIAL" > "$HISTORIAL.tmp" && mv "$HISTORIAL.tmp" "$HISTORIAL"
+    fi
+}
+
+en_cuarentena() { grep -qxF "$1" "$ESTADO/cuarentena" 2>/dev/null; }
+a_cuarentena() { en_cuarentena "$1" || echo "$1" >> "$ESTADO/cuarentena"; }
+
+ultimas_lineas() { docker logs --tail "${2:-40}" "$1" 2>&1 | tail -c 1500; }
+
+compose() { (cd "$APP" && docker compose "$@"); }
+nginx_mailcow() { (cd "$MAILCOW" && docker compose exec -T nginx-mailcow "$@" </dev/null); }
+
+# --- avisos -----------------------------------------------------------------
+
+# Primero por la web (panel + correo a los owners); si no contesta, correo
+# directo desde el propio Postfix de este servidor: el aviso sale igual.
+avisa() {
+    # avisa <tipo> <release> <detalle>
+    local kind="$1" release="$2" detail="$3" payload
+    payload=$(jq -cn --arg env "$ENV_NOMBRE" --arg kind "$kind" --arg release "$release" \
+        --arg detail "${detail:0:1500}" --arg at "$(ahora)" \
+        '{env:$env,kind:$kind,release:$release,detail:$detail,at:$at}')
+    if [ -n "$AVISOS_SECRETO" ] && curl -fsS --max-time 15 -X POST \
+        -H "Authorization: Bearer $AVISOS_SECRETO" -H "Content-Type: application/json" \
+        --data "$payload" "$AVISOS_URL" >/dev/null 2>&1; then
+        return
+    fi
+
+    # Una publicacion normal no merece correo directo: solo los fallos.
+    [ "$kind" = deployed ] && return
+    log "la web no recibio el aviso $kind; se manda por correo directo"
+    [ -n "$AVISOS_CORREOS" ] || return
+    printf 'From: %s\nTo: %s\nSubject: [rud1 despliegues] correo: %s %s\nContent-Type: text/plain; charset=UTF-8\n\nEntorno: correo (mail.rud1.es)\nSuceso: %s\nVersion: %s\n\n%s\n\nEste correo sale directamente del servidor de correo porque la web no respondia.\n' \
+        "$AVISOS_REMITENTE" "$AVISOS_CORREOS" "$kind" "${release:0:7}" "$kind" "${release:0:7}" "$detail" \
+        | (cd "$MAILCOW" && docker compose exec -T postfix-mailcow sendmail -t) >/dev/null 2>&1 \
+        || log "tampoco salio el correo directo"
+}
+
+# --- salud ------------------------------------------------------------------
+
+# Sana = /api/salud dice ok (y la version esperada) y la entrada se pinta. Las
+# versiones de antes del agente no tienen /api/salud: les basta con la entrada.
+# Dovecot o Mailcow caidos no cuentan: volver atras no lo arreglaria.
+sano() {
+    local nombre="$1" release="${2:-}" cuerpo
+    corre "$nombre" || return 1
+    if [ -n "$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$nombre" 2>/dev/null)" ]; then
+        cuerpo=$(docker exec "$nombre" wget -qO- -T 8 http://127.0.0.1:3100/api/salud 2>/dev/null) || return 1
+        [ "$(jq -r '.ok // false' <<<"$cuerpo" 2>/dev/null)" = true ] || return 1
+        if [ -n "$release" ]; then
+            [ "$(jq -r '.release // ""' <<<"$cuerpo")" = "$release" ] || return 1
+        fi
+    fi
+    docker exec "$nombre" wget -qO /dev/null -T 15 http://127.0.0.1:3100/entrar >/dev/null 2>&1
+}
+
+espera_sano() {
+    local nombre="$1" release="$2" limite="$3" inicio=$SECONDS
+    while (( SECONDS - inicio < limite )); do
+        sano "$nombre" "$release" && return 0
+        sleep 3
+    done
+    return 1
+}
+
+# --- configuracion que viaja con cada version --------------------------------
+
+# Las rutas de Nginx y la definicion de las copias van dentro de la imagen
+# (/app/deploy): una pagina nueva necesita su ruta en Nginx a la vez que sale.
+extrae_config() {
+    # extrae_config <imagen> <carpeta>
+    local id="$1" destino="$2" tmp
+    rm -rf "$destino" && mkdir -p "$destino"
+    tmp=$(docker create "$id") || return 1
+    docker cp "$tmp:/app/deploy/." "$destino" >/dev/null 2>&1
+    docker rm -f "$tmp" >/dev/null 2>&1
+    [ -f "$destino/site.rud1mail.custom" ] && [ -f "$destino/rud1mail.proxy" ] && [ -f "$destino/docker-compose.yml" ]
+}
+
+# Lo que tenia Nginx para cada copia, para volver a ella tal cual.
+guarda_nginx() {
+    # guarda_nginx <hueco> <carpeta>
+    mkdir -p "$ESTADO/nginx-$1"
+    cp "$2/site.rud1mail.custom" "$2/rud1mail.proxy" "$ESTADO/nginx-$1/"
+}
+
+cambia_trafico() {
+    # cambia_trafico <hueco>
+    local hueco="$1" f
+    for f in rud1mail.destino site.rud1mail.custom rud1mail.proxy; do
+        [ -f "$NGX/$f" ] && cp "$NGX/$f" "$NGX/$f.antes"
+    done
+    printf '# Copia de rud1 Mail que sirve ahora (la escribe rud1-mail-deploy).\nset $rud1mail http://%s:3100;\n' \
+        "$(ip_de "$hueco")" > "$NGX/rud1mail.destino"
+    if [ -d "$ESTADO/nginx-$hueco" ]; then
+        cp "$ESTADO/nginx-$hueco/site.rud1mail.custom" "$ESTADO/nginx-$hueco/rud1mail.proxy" "$NGX/"
+    fi
+    # Recargar no corta nada: las peticiones en curso acaban donde empezaron.
+    if nginx_mailcow nginx -t >/dev/null 2>&1 && nginx_mailcow nginx -s reload >/dev/null 2>&1; then
+        echo "$hueco" > "$APP/SLOT"
+        return 0
+    fi
+    for f in rud1mail.destino site.rud1mail.custom rud1mail.proxy; do
+        [ -f "$NGX/$f.antes" ] && mv "$NGX/$f.antes" "$NGX/$f"
+    done
+    return 1
+}
+
+# --- desplegar y volver atras ---------------------------------------------------
+
+desplegar() {
+    # desplegar <etiqueta|sha256:id> <quien>
+    local ref="$1" quien="$2"
+    exec 8>"$LOCK"
+    flock -n 8 || fallo "ya hay un despliegue en marcha"
+
+    local imagen_ref="$ref"
+    [[ "$ref" == sha256:* ]] || imagen_ref="$IMAGEN:$ref"
+    [[ "$ref" == sha256:* ]] || docker pull -q "$imagen_ref" >/dev/null 2>&1 \
+        || fallo "no se pudo descargar $imagen_ref"
+
+    local id release activo nuevo nombre viejo=""
+    id=$(docker image inspect -f '{{.Id}}' "$imagen_ref" 2>/dev/null) || fallo "no existe la imagen $imagen_ref"
+    release=$(release_de_imagen "$id")
+    activo=$(hueco_activo)
+    nuevo=$(otro_hueco "${activo:-b}")
+    nombre=$(contenedor "$nuevo")
+    [ -n "$activo" ] && viejo=$(contenedor "$activo")
+
+    log "desplegando ${release:0:7} en la copia $nuevo (activa: ${activo:-ninguna})"
+    registra started "$release" "$id" "copia $nuevo" "$quien"
+
+    if ! extrae_config "$id" "$ESTADO/nueva"; then
+        registra failed "$release" "$id" "la imagen no trae deploy/ (rutas de Nginx y copias)" "$quien"
+        a_cuarentena "$id"
+        avisa failed "$release" "La imagen nueva no trae su configuracion de Nginx. No ha recibido trafico; sigue la anterior."
+        fallo "la imagen no trae su configuracion"
+    fi
+    cp "$APP/docker-compose.yml" "$APP/docker-compose.yml.antes" 2>/dev/null
+    cp "$ESTADO/nueva/docker-compose.yml" "$APP/docker-compose.yml"
+
+    docker tag "$id" "rud1-mail:$nuevo"
+    if ! compose up -d --no-deps --force-recreate "rud1-mail-$nuevo" >/dev/null 2>&1; then
+        mv "$APP/docker-compose.yml.antes" "$APP/docker-compose.yml" 2>/dev/null
+        registra failed "$release" "$id" "docker no pudo arrancar la copia $nuevo" "$quien"
+        a_cuarentena "$id"
+        avisa failed "$release" "Docker no pudo arrancar la version nueva. Sigue la anterior."
+        fallo "docker no pudo arrancar la copia nueva"
+    fi
+
+    if ! espera_sano "$nombre" "$release" 180; then
+        local lineas
+        lineas=$(ultimas_lineas "$nombre")
+        docker rm -f "$nombre" >/dev/null 2>&1
+        mv "$APP/docker-compose.yml.antes" "$APP/docker-compose.yml" 2>/dev/null
+        a_cuarentena "$id"
+        registra failed "$release" "$id" "no arranco sana en 3 minutos" "$quien"
+        avisa failed "$release" "La version nueva no llego a arrancar sana en 3 minutos y no ha recibido trafico. Sigue la anterior. Ultimas lineas:
+$lineas"
+        fallo "la version nueva no arranco sana; sigue la anterior"
+    fi
+
+    guarda_nginx "$nuevo" "$ESTADO/nueva"
+    if ! cambia_trafico "$nuevo"; then
+        docker rm -f "$nombre" >/dev/null 2>&1
+        mv "$APP/docker-compose.yml.antes" "$APP/docker-compose.yml" 2>/dev/null
+        a_cuarentena "$id"
+        registra failed "$release" "$id" "Nginx rechazo la configuracion nueva" "$quien"
+        avisa failed "$release" "Nginx no acepto la configuracion de la version nueva. Sigue la anterior."
+        fallo "no se pudo cambiar el trafico"
+    fi
+    echo "$release" > "$APP/VERSION"
+    echo "$release" > "$ESTADO/release-$nuevo"
+    registra switched "$release" "$id" "trafico en la copia $nuevo" "$quien"
+
+    # Vigilancia: la anterior sigue arrancada para volver en un segundo.
+    local inicio=$SECONDS fallos=0 motivo=""
+    while (( SECONDS - inicio < VIGILANCIA )); do
+        sleep 10
+        if [ "$(docker inspect -f '{{.RestartCount}}' "$nombre" 2>/dev/null || echo 99)" != 0 ]; then
+            motivo="se cayo y Docker tuvo que reiniciarla"; break
+        fi
+        if sano "$nombre" "$release"; then fallos=0; else fallos=$((fallos + 1)); fi
+        if (( fallos >= 3 )); then motivo="dejo de responder durante la vigilancia"; break; fi
+    done
+
+    if [ -n "$motivo" ]; then
+        local lineas
+        lineas=$(ultimas_lineas "$nombre")
+        if [ -n "$viejo" ] && corre "$viejo" && cambia_trafico "$activo"; then
+            echo "$(release_de_hueco "$activo")" > "$APP/VERSION"
+            docker rm -f "$nombre" >/dev/null 2>&1
+            mv "$APP/docker-compose.yml.antes" "$APP/docker-compose.yml" 2>/dev/null
+            a_cuarentena "$id"
+            registra rolled_back "$release" "$id" "$motivo" "$quien"
+            avisa rolled_back "$release" "La version nueva $motivo. El trafico ha vuelto solo a la anterior. Ultimas lineas:
+$lineas"
+            fallo "vuelta atras automatica: $motivo"
+        fi
+        registra unhealthy "$release" "$id" "$motivo (no hay version anterior)" "$quien"
+        avisa unhealthy "$release" "La version nueva $motivo y no hay version anterior a la que volver. Ultimas lineas:
+$lineas"
+        fallo "$motivo"
+    fi
+
+    # La de antes se para pero se guarda: volver a ella tarda segundos. Las
+    # pestanas que seguian conectadas a ella se reconectan a la nueva y, al ver
+    # otra version, se recargan solas.
+    [ -n "$viejo" ] && docker stop -t 30 "$viejo" >/dev/null 2>&1
+    # Contenedor de antes de las copias a/b, si quedara.
+    existe_contenedor rud1-mail && docker rm -f rud1-mail >/dev/null 2>&1
+    rm -f "$APP/docker-compose.yml.antes"
+    registra deployed "$release" "$id" "en marcha en la copia $nuevo" "$quien"
+    avisa deployed "$release" "Version en marcha tras $VIGILANCIA s de vigilancia."
+    # prune solo borra imagenes sin contenedor: la de reserva no se toca.
+    docker image prune -f >/dev/null 2>&1 || true
+    ok "$(jq -cn --arg env "$ENV_NOMBRE" --arg release "$release" --arg slot "$nuevo" '{env:$env,release:$release,slot:$slot}')"
+}
+
+volver_atras() {
+    # volver_atras <quien>
+    local quien="$1"
+    exec 8>"$LOCK"
+    flock -n 8 || fallo "hay un despliegue en marcha; espera a que acabe"
+
+    local activo otro nombre_otro id_actual release_actual release_otro
+    activo=$(hueco_activo)
+    [ -n "$activo" ] || fallo "no hay ninguna version en marcha"
+    otro=$(otro_hueco "$activo")
+    nombre_otro=$(contenedor "$otro")
+    existe_contenedor "$nombre_otro" || fallo "no queda una version anterior guardada"
+    id_actual=$(docker inspect -f '{{.Image}}' "$(contenedor "$activo")" 2>/dev/null || true)
+    release_actual=$(release_de_hueco "$activo")
+    release_otro=$(release_de_hueco "$otro")
+
+    docker start "$nombre_otro" >/dev/null 2>&1 || fallo "no se pudo arrancar la version anterior"
+    espera_sano "$nombre_otro" "$release_otro" 120 \
+        || { docker stop "$nombre_otro" >/dev/null 2>&1; fallo "la version anterior no arranco sana; se queda la actual"; }
+    cambia_trafico "$otro" || fallo "Nginx rechazo el cambio de trafico"
+    echo "$release_otro" > "$APP/VERSION"
+    docker stop -t 30 "$(contenedor "$activo")" >/dev/null 2>&1
+
+    # Sin esto, el vigia volveria a desplegar en un minuto la version retirada.
+    [ -n "$id_actual" ] && a_cuarentena "$id_actual"
+    registra rollback "$release_otro" "" "vuelta a ${release_otro:0:7} desde ${release_actual:0:7}" "$quien"
+    avisa rollback "$release_otro" "Vuelta atras manual ($quien): de ${release_actual:0:7} a ${release_otro:0:7}. Los despliegues automaticos siguen; la version retirada no se reinstala sola."
+    ok "$(jq -cn --arg env "$ENV_NOMBRE" --arg release "$release_otro" --arg slot "$otro" '{env:$env,release:$release,slot:$slot}')"
+}
+
+# --- vigia ------------------------------------------------------------------
+
+# Cada minuto: si la version en marcha deja de responder se reinicia (y se
+# avisa); si hay imagen nueva y no esta retirada, se despliega.
+vigia() {
+    [ -f "$APP/.env" ] || return 0
+    local activo nombre
+    activo=$(hueco_activo)
+
+    if [ -n "$activo" ] && ! flock -n "$LOCK" true; then
+        return 0 # despliegue en marcha: el se encarga de vigilar
+    fi
+
+    if [ -n "$activo" ]; then
+        nombre=$(contenedor "$activo")
+        local cont="$ESTADO/fallos-salud"
+        if sano "$nombre"; then
+            rm -f "$cont"
+        else
+            local n=$(( $(cat "$cont" 2>/dev/null || echo 0) + 1 ))
+            echo "$n" > "$cont"
+            if (( n == 10 )); then
+                avisa unhealthy "" "rud1 Mail sigue sin responder 7 minutos despues de reiniciarlo. Hay que mirarlo a mano."
+            fi
+            if (( n == 3 )); then
+                log "sin respuesta 3 minutos, reiniciando $nombre"
+                docker restart "$nombre" >/dev/null 2>&1
+                registra restarted "" "" "sin respuesta 3 minutos" sistema
+                avisa restarted "" "rud1 Mail no respondio durante 3 minutos y se ha reiniciado solo. Ultimas lineas:
+$(ultimas_lineas "$nombre")"
+            fi
+        fi
+    fi
+
+    bandera auto-off && return 0
+    docker pull -q "$IMAGEN:$ETIQUETA" >/dev/null 2>&1 || return 0
+    local id actual=""
+    id=$(docker image inspect -f '{{.Id}}' "$IMAGEN:$ETIQUETA" 2>/dev/null) || return 0
+    [ -n "$activo" ] && actual=$(docker inspect -f '{{.Image}}' "$(contenedor "$activo")" 2>/dev/null || true)
+    [ "$id" = "$actual" ] && return 0
+    en_cuarentena "$id" && return 0
+    desplegar "$id" automatico >/dev/null
+}
+
+# --- consultas ----------------------------------------------------------------
+
+estado() {
+    local activo nombre corriendo=false release="" desde="" salud=false anterior=null otro
+    activo=$(hueco_activo)
+    if [ -n "$activo" ]; then
+        nombre=$(contenedor "$activo")
+        if corre "$nombre"; then
+            corriendo=true
+            release=$(release_de_hueco "$activo")
+            desde=$(docker inspect -f '{{.State.StartedAt}}' "$nombre")
+            sano "$nombre" && salud=true
+        fi
+    fi
+    otro=$(otro_hueco "${activo:-b}")
+    if existe_contenedor "$(contenedor "$otro")"; then
+        anterior=$(jq -cn --arg r "$(release_de_hueco "$otro")" '$r')
+    fi
+    local entorno disco memoria reinicio
+    entorno=$(jq -cn --arg env "$ENV_NOMBRE" --arg hosts "$HOSTS" --arg tag "$ETIQUETA" \
+        --arg slot "$activo" --argjson running "$corriendo" --arg release "$release" \
+        --arg since "$desde" --argjson healthy "$salud" --argjson previous "$anterior" \
+        --argjson auto "$(bandera auto-off && echo false || echo true)" \
+        --argjson pinned "$( [ -f "$ESTADO/cuarentena" ] && wc -l < "$ESTADO/cuarentena" || echo 0)" \
+        '{env:$env,hosts:($hosts|split(" ")),tag:$tag,slot:$slot,running:$running,release:$release,
+          since:$since,healthy:$healthy,previousRelease:$previous,autoDeploy:$auto,tasks:false,pinned:$pinned}')
+    disco=$(df -B1 --output=size,avail / | tail -1 | awk '{print "{\"total\":"$1",\"free\":"$2"}"}')
+    memoria=$(free -b | awk '/^Mem:/ {print "{\"total\":"$2",\"available\":"$7"}"}')
+    reinicio=false; [ -f /var/run/reboot-required ] && reinicio=true
+    ok "$(jq -cn --argjson env "$entorno" --argjson disk "$disco" --argjson mem "$memoria" \
+        --argjson reboot "$reinicio" --arg host "$(hostname)" \
+        '{host:$host,environments:[$env],disk:$disk,memory:$mem,rebootRequired:$reboot}')"
+}
+
+historial() {
+    local n="${1:-50}"
+    [[ "$n" =~ ^[0-9]{1,4}$ ]] || fallo "numero no valido"
+    [ -f "$HISTORIAL" ] || ok "[]"
+    ok "$(tail -n "$n" "$HISTORIAL" | jq -cs 'reverse')"
+}
+
+registros() {
+    local n="${2:-200}"
+    valida_entorno "${1:-}"
+    [[ "$n" =~ ^[0-9]{1,3}$ ]] || fallo "numero no valido"
+    local activo
+    activo=$(hueco_activo)
+    [ -n "$activo" ] || fallo "no hay version en marcha"
+    ok "$(docker logs --tail "$n" "$(contenedor "$activo")" 2>&1 | tail -c 60000 | jq -Rs '.')"
+}
+
+# --- entrada del panel ------------------------------------------------------
+
+# La llave del panel solo llega aqui (command= en authorized_keys). Nada de
+# desplegar etiquetas arbitrarias: consultar y volver atras.
+panel() {
+    local -a args
+    read -r -a args <<<"${SSH_ORIGINAL_COMMAND:-}"
+    case "${args[0]:-}" in
+        status) estado ;;
+        history) historial "${args[1]:-50}" ;;
+        logs) registros "${args[1]:-}" "${args[2]:-200}" ;;
+        rollback)
+            valida_entorno "${args[1]:-}"
+            [[ "${args[2]:-panel}" =~ ^[A-Za-z0-9@._+-]{1,120}$ ]] || fallo "autor no valido"
+            volver_atras "${args[2]:-panel}"
+            ;;
+        *) fallo "operacion no permitida" ;;
+    esac
+}
+
+# --- principal --------------------------------------------------------------
+
+[ "$(id -u)" = 0 ] || fallo "hay que ejecutarlo como root"
+
+case "${1:-}" in
+    panel) panel ;;
+    status) estado ;;
+    history) historial "${2:-50}" ;;
+    logs) registros "${2:-$ENV_NOMBRE}" "${3:-200}" ;;
+    deploy) desplegar "${2:-$ETIQUETA}" "${SUDO_USER:-root}" ;;
+    rollback) volver_atras "${SUDO_USER:-root}" ;;
+    unpin) rm -f "$ESTADO/cuarentena"; ok '{"cuarentena":"vaciada"}' ;;
+    auto)
+        case "${2:-}" in
+            on) rm -f "$ESTADO/auto-off" ;;
+            off) touch "$ESTADO/auto-off" ;;
+            *) fallo "uso: auto on|off" ;;
+        esac
+        ok "$(jq -cn --arg v "$2" '{env:"correo",auto:$v}')"
+        ;;
+    # Siempre sale bien: si la unidad de systemd quedara en fallo, su
+    # temporizador podria dejar de dispararse. El resultado queda en el journal.
+    vigia) ( vigia ) || true; exit 0 ;;
+    *) fallo "uso: status | history | logs | deploy | rollback | unpin | auto | vigia | panel" ;;
+esac

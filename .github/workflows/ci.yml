@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [develop, master]
+  pull_request:
+
+jobs:
+  comprobaciones:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # La de la imagen (Dockerfile).
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
+  # Imagen para el servidor de correo: master -> producción (mail.rud1.es).
+  # Solo sale si las comprobaciones de arriba han pasado; el agente del
+  # servidor la descarga solo en el minuto siguiente (README, «Despliegue»).
+  imagen:
+    needs: comprobaciones
+    if: github.event_name == 'push' && github.ref_name == 'master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: imagen-${{ github.ref_name }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          provenance: false
+          tags: |
+            ghcr.io/arugerdev/rud1-mail:${{ github.ref_name }}
+            ghcr.io/arugerdev/rud1-mail:${{ github.ref_name }}-${{ github.sha }}
+          build-args: |
+            BUILD_ID=${{ github.sha }}
+          cache-from: type=gha,scope=${{ github.ref_name }}
+          cache-to: type=gha,mode=max,scope=${{ github.ref_name }}

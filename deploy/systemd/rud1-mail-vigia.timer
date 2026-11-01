@@ -1,0 +1,11 @@
+[Unit]
+Description=rud1 Mail: vigia de despliegues cada minuto
+
+[Timer]
+OnBootSec=1min
+# Un minuto despues de acabar la anterior: nunca se solapan.
+OnUnitInactiveSec=1min
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=rud1 Mail: vigia de despliegues
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/rud1-mail-deploy vigia
+# Un despliegue completo (descarga + arranque + vigilancia) cabe de sobra.
+TimeoutStartSec=20min

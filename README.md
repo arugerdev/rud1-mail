@@ -91,22 +91,90 @@ Comprobaciones: `npm run typecheck`, `npm run lint`, `npm test`.
 
 ## Despliegue (mail.rud1.es)
 
-rud1 Mail corre en el servidor de correo (VPS de OVH), en un contenedor dentro
-de la red interna de Mailcow (IP fija `172.22.1.240`). El Nginx de Mailcow le
-pasa solo sus rutas (`deploy/site.rud1mail.custom`); Mailcow sigue sirviendo
-`/admin` (administración), `/domainadmin`, `/SOGo`, la API, Autodiscover y
-ActiveSync.
+rud1 Mail corre en el servidor de correo (VPS de OVH), dentro de la red interna
+de Mailcow, en dos copias que se turnan (`a` en `172.22.1.240`, `b` en
+`172.22.1.241`). El Nginx de Mailcow le pasa solo sus rutas
+(`deploy/site.rud1mail.custom`); Mailcow sigue sirviendo `/admin`,
+`/domainadmin`, `/SOGo`, la API, Autodiscover y ActiveSync.
 
-```bash
-bash deploy/desplegar.sh     # despliega el último commit de la rama actual
+### Cómo sale una versión
+
+```
+push a master ─> CI (tipos, lint, tests) ─> imagen en ghcr.io/arugerdev/rud1-mail
+                                                        │
+servidor: vigía cada minuto ─ ve la imagen nueva ─ la arranca en la copia libre
+   ─ comprueba /api/salud (versión y base de datos) y /entrar ─ aplica sus rutas
+   de Nginx y le pasa el tráfico ─ la vigila 5 min con la anterior todavía
+   arrancada ─ si algo falla, el tráfico vuelve solo a la anterior
 ```
 
-El script copia el código, construye la imagen en el servidor, arranca el
-contenedor y recarga Nginx (comprobando antes la configuración). La primera
-vez crea `/opt/rud1-mail/.env` (clave de sesión y clave de la API) y deja a
-Mailcow preparado: API abierta a esa IP, Dovecot recibe la IP real de quien
-entra (para que los bloqueos vayan al atacante) y el cortafuegos no bloquea
-nunca a rud1 Mail.
+| Rama | Qué pasa |
+|---|---|
+| `develop` | Solo las comprobaciones. No toca el servidor. |
+| `master` | Comprobaciones, imagen y publicación automática en mail.rud1.es. |
+
+- **Vuelta atrás automática.** Si la versión nueva no arranca sana en 3 minutos,
+  si Nginx rechaza sus rutas, o si durante la vigilancia se cae o deja de
+  responder, el tráfico sigue (o vuelve) en la anterior. Esa versión queda
+  **retirada**: el vigía no la reinstala. En cuanto se publica otra, sigue solo.
+- **Sin cortes.** La versión nueva arranca junto a la que sirve y Nginx pasa a
+  ella con una recarga. Las pestañas abiertas se reconectan y, al ver otra
+  versión, se recargan solas.
+- **Si deja de responder** 3 minutos, el vigía la reinicia; si a los 10 sigue
+  igual, avisa para mirarlo a mano.
+- **Avisos.** Fallos, vueltas atrás y reinicios llegan a los owners en el panel
+  (campana y push) y por correo, a través de www.rud1.es
+  (`/api/v1/correo/despliegues`). Si la web no contesta, el servidor manda el
+  correo él mismo con el Postfix de Mailcow a `AVISOS_CORREOS`.
+- **Lo que viaja con cada versión.** La imagen lleva `deploy/` (rutas de Nginx y
+  definición de las copias): una página nueva sale con su ruta. Las variables
+  (`/opt/rud1-mail/.env`) no viajan: una nueva se añade a mano antes.
+
+Estado, historial, registros y volver atrás: **admin.rud1.es/despliegues**
+(bloque «Correo»).
+
+### Día a día
+
+Todo con `sudo` en el servidor; las respuestas son JSON (`| jq`).
+
+| Para | Orden |
+|---|---|
+| Ver qué hay en marcha | `rud1-mail-deploy status` |
+| Últimos sucesos | `rud1-mail-deploy history 20` |
+| Registro de la app | `rud1-mail-deploy logs correo 200` |
+| Volver a la versión anterior | `rud1-mail-deploy rollback` |
+| Publicar una versión concreta | `rud1-mail-deploy deploy master-<commit>` |
+| Pausar / reanudar los automáticos | `rud1-mail-deploy auto off` / `auto on` |
+| Permitir otra vez una versión retirada | `rud1-mail-deploy unpin` |
+
+Desde este equipo, `deploy/desplegar.sh [master-<commit>|rollback]` hace lo
+mismo por SSH.
+
+### Montar el servidor
+
+Una vez (y otra si cambia el agente; se puede repetir):
+
+```bash
+GHCR_TOKEN_FILE=~/ghcr-token AVISOS_CORREOS=a@rud1.es,b@rud1.es bash deploy/instalar-servidor.sh
+```
+
+`ghcr-token` es un token de GitHub que solo tiene `read:packages`. El script
+instala el agente y su vigía, crea `/opt/rud1-mail/.env` la primera vez (clave
+de sesión y clave de la API), deja a Mailcow preparado (API abierta a las IP de
+las copias, Dovecot recibe la IP real de quien entra para que los bloqueos
+vayan al atacante, y el cortafuegos no bloquea nunca a rud1 Mail) y crea la
+llave del panel: solo desde el servidor web y solo para consultar y volver
+atrás. Lo que hay que poner en la web lo deja en `secretos/correo-despliegues.env`:
+las `RUD1_MAIL_DEPLOY_AGENT_*` en el `app.env` de admin y
+`RUD1_MAIL_DEPLOY_EVENTS_SECRET` en el de producción.
+
+| Ruta | Qué es |
+|---|---|
+| `/usr/local/bin/rud1-mail-deploy` | El agente |
+| `/etc/rud1-mail-deploy/agente.conf` | Secreto de los avisos y correos de emergencia |
+| `/var/lib/rud1-mail-deploy/historial.jsonl` | Todo lo que ha pasado |
+| `/opt/rud1-mail/.env` | Variables de la app (secretos) |
+| `/opt/rud1-mail/SLOT` | Copia que sirve ahora (`a` o `b`) |
 
 ### Paneles de Mailcow
 
