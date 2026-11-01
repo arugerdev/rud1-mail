@@ -31,9 +31,11 @@ SSH=(ssh -i "$KEY" -o ServerAliveInterval=30 "$HOST")
 
 echo "==> Instalando el agente en $HOST"
 "${SSH[@]}" "sudo install -d -m 700 /etc/rud1-mail-deploy && sudo install -d /var/lib/rud1-mail-deploy /opt/rud1-mail"
-"${SSH[@]}" "sudo tee /usr/local/bin/rud1-mail-deploy >/dev/null && sudo chmod 755 /usr/local/bin/rud1-mail-deploy" < "$ROOT/deploy/rud1-mail-deploy"
+# Sin retornos de carro: en un checkout de Windows git puede ponerlos y bash no arrancaria.
+tr -d '\r' < "$ROOT/deploy/rud1-mail-deploy" \
+  | "${SSH[@]}" "sudo tee /usr/local/bin/rud1-mail-deploy >/dev/null && sudo chmod 755 /usr/local/bin/rud1-mail-deploy"
 for unidad in rud1-mail-vigia.service rud1-mail-vigia.timer; do
-  "${SSH[@]}" "sudo tee /etc/systemd/system/$unidad >/dev/null" < "$ROOT/deploy/systemd/$unidad"
+  tr -d '\r' < "$ROOT/deploy/systemd/$unidad" | "${SSH[@]}" "sudo tee /etc/systemd/system/$unidad >/dev/null"
 done
 if [ -n "${GHCR_TOKEN_FILE:-}" ]; then
   "${SSH[@]}" "sudo install -m 600 /dev/stdin /etc/rud1-mail-deploy/ghcr-token" < "$GHCR_TOKEN_FILE"
