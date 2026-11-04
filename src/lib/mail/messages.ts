@@ -1,11 +1,11 @@
 import "server-only";
 
 import type { FetchMessageObject, ImapFlow, MessageStructureObject, SearchObject } from "imapflow";
-import { convert } from "html-to-text";
 import { simpleParser, type AddressObject, type ParsedMail } from "mailparser";
 
 import { withImap, withMailbox, type Credentials } from "@/lib/imap";
 import { listFolders, specialFolderFor, specialUseOfPath, type SpecialUse } from "@/lib/mail/folders";
+import { messageText } from "@/lib/mail/html-text";
 
 export interface Address {
   name: string;
@@ -178,15 +178,6 @@ function addresses(value: AddressObject | AddressObject[] | undefined): Address[
   );
 }
 
-/** Texto de un correo HTML: sin imágenes y sin pasar los títulos a mayúsculas. */
-const HTML_TO_TEXT_SELECTORS = [
-  { selector: "img", format: "skip" },
-  ...["h1", "h2", "h3", "h4", "h5", "h6", "th"].map((selector) => ({
-    selector,
-    options: { uppercase: false },
-  })),
-];
-
 /** Imágenes incrustadas de más de esto no se meten en el HTML (salen como adjunto). */
 const MAX_INLINE_IMAGE = 3 * 1024 * 1024;
 
@@ -249,11 +240,7 @@ export async function getMessage(
       html: typeof parsed.html === "string" ? parsed.html : null,
       // Muchos correos solo traen HTML: el texto (para citar al responder)
       // se saca de él.
-      text: parsed.text?.trim()
-        ? parsed.text
-        : typeof parsed.html === "string"
-          ? convert(parsed.html, { wordwrap: false, selectors: HTML_TO_TEXT_SELECTORS })
-          : "",
+      text: messageText(parsed),
       inlineImages,
       attachments,
       flagged: flags.has("\\Flagged"),
