@@ -36,6 +36,9 @@ export async function GET(request: NextRequest) {
       "Content-Length": String(att.content.length),
       "X-Content-Type-Options": "nosniff",
       "Cache-Control": "private, no-store",
+      // Esta ruta está fuera de la CSP global (next.config.mjs): la suya, la más
+      // cerrada, por si algún navegador llegara a abrir el adjunto en vez de bajarlo.
+      "Content-Security-Policy": "default-src 'none'; sandbox",
     },
   });
 }
