@@ -8,7 +8,8 @@ import { config } from "@/lib/config";
 import { learnContacts } from "@/lib/contacts";
 import { deleteDraftData, getDraftData, saveDraftData, type DraftData, type DraftRecipient } from "@/lib/drafts";
 import { sanitizeAuthoredHtml } from "@/lib/mail/authoring";
-import { composeMessage, type ComposeMode } from "@/lib/mail/compose";
+import { composeMessage, partDefaultsFor, type ComposeMode } from "@/lib/mail/compose";
+import { parseParts, type PartDefaults } from "@/lib/mail/parts";
 import {
   deleteForever,
   getAllAttachments,
@@ -30,6 +31,7 @@ import {
 import { escapeHtml, isValidEmail } from "@/lib/mail/text";
 import { getMailbox, mailcowAvailable } from "@/lib/mailcow";
 import { requireUser, type SignedInSession } from "@/lib/session";
+import { TEMPLATE_VARIABLES } from "@/lib/templates";
 
 export interface ActionResult {
   ok: boolean;
@@ -172,6 +174,8 @@ async function readComposeForm(formData: FormData): Promise<ComposeForm | string
       keepAttachments: formData.get("keepAttachments") === "1",
       inReplyTo: String(formData.get("inReplyTo") ?? "") || null,
       references,
+      bodyFormat: formData.get("bodyFormat") === "html" ? "html" : "visual",
+      parts: parseParts(String(formData.get("parts") ?? "")),
     },
     attachments,
     draftUid: Number(formData.get("draftUid") ?? 0) || null,
@@ -205,6 +209,7 @@ async function buildOutgoing(
     mode: draft.mode,
     source: draft.source,
     includeQuote: draft.includeQuote,
+    parts: draft.parts,
   });
   return {
     fromName: sender.name,
@@ -333,10 +338,22 @@ export async function previewAction(formData: FormData): Promise<{ ok: boolean; 
       mode: form.draft.mode,
       source: form.draft.source,
       includeQuote: form.draft.includeQuote,
+      parts: form.draft.parts,
     });
     return { ok: true, document: wrap(html, true) };
   } catch (error) {
     console.error("[vista previa]", error);
     return { ok: false, error: "No se pudo preparar la vista previa." };
   }
+}
+
+/**
+ * Cabecera, firma y pie que llevaría el mensaje sin tocar nada, para
+ * enseñarlos en el redactor y partir de ellos al cambiarlos.
+ */
+export async function messagePartsAction(
+  mode: ComposeMode,
+): Promise<{ defaults: PartDefaults; variables: typeof TEMPLATE_VARIABLES }> {
+  const user = await requireUser();
+  return { defaults: partDefaultsFor(user, MODES.includes(mode) ? mode : "new"), variables: TEMPLATE_VARIABLES };
 }

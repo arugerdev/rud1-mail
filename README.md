@@ -28,6 +28,10 @@ Además:
 - **Redactor con formato** (TipTap): negrita, listas, citas, enlaces, colores,
   alineación; destinatarios como chips con autocompletado (equipo + contactos
   aprendidos), guardado automático y **vista previa** exacta de lo que se envía.
+  Modo **HTML** para diseños con tablas (campañas): se pega o se abre un `.html`,
+  las imágenes `data:` viajan dentro del correo (cid:) y el borrador se reabre en HTML.
+  En cada mensaje se puede **quitar o cambiar la cabecera, la firma y el pie** solo
+  para ese envío (botón «Cabecera, firma y pie»), sin tocar los de siempre.
 - **Perfil**: nombre, puesto, departamento, teléfono, foto, firma con
   variables y preferencias (avisos, sonido, lista compacta).
 - **Administración** (Álvaro y Manuel, `ADMIN_EMAILS`): cabecera y pie

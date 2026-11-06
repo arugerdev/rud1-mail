@@ -4,6 +4,7 @@ import * as React from "react";
 
 import type { DraftContent } from "@/app/actions/mail";
 import type { MessageDetail } from "@/lib/mail/messages";
+import type { MessageParts } from "@/lib/mail/parts";
 import { forwardSubject, replySubject } from "@/lib/mail/text";
 
 import { Composer } from "./composer";
@@ -45,6 +46,10 @@ export interface ComposeState {
   keepAttachments: boolean;
   draftUid: number | null;
   draftMessageId: string | null;
+  /** Cómo se escribió el cuerpo (un borrador lo conserva); sin esto, se deduce. */
+  bodyFormat?: "visual" | "html";
+  /** Cabecera, firma y pie quitados o cambiados en este mensaje. */
+  parts?: MessageParts;
 }
 
 interface ComposeContextValue {
@@ -156,6 +161,8 @@ function stateFor(request: ComposeRequest, userEmail: string, identities: Identi
       keepAttachments: d.keepAttachments,
       draftUid: d.uid,
       draftMessageId: d.messageId,
+      bodyFormat: d.bodyFormat,
+      parts: d.parts,
     };
   }
 

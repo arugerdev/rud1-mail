@@ -9,7 +9,7 @@
     "start": "next start -p 3100",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/lib/mail/text.test.ts src/lib/mail/html-text.test.ts \"src/app/(correo)/mailto.test.ts\" next.config.test.ts"
+    "test": "tsx --test src/lib/mail/text.test.ts src/lib/mail/html-text.test.ts src/lib/mail/parts.test.ts \"src/app/(correo)/mailto.test.ts\" next.config.test.ts && tsx --conditions=react-server --test src/lib/mail/authoring.test.ts"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.1.1",
