@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "@/lib/db";
+import type { MessageParts } from "@/lib/mail/parts";
 
 /**
  * Datos de los borradores escritos en rud1 Mail. El borrador también se
@@ -28,6 +29,10 @@ export interface DraftData {
   keepAttachments: boolean;
   inReplyTo: string | null;
   references: string[];
+  /** Cómo se escribió el cuerpo: con el editor visual o en HTML (diseños con tablas). */
+  bodyFormat?: "visual" | "html";
+  /** Cabecera, firma y pie quitados o cambiados en este mensaje. */
+  parts?: MessageParts;
 }
 
 export function saveDraftData(owner: string, messageId: string, data: DraftData): void {
