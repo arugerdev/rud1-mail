@@ -2,28 +2,37 @@ import "server-only";
 
 import sanitizeHtml from "sanitize-html";
 
+import { bodyOf } from "@/lib/mail/parts";
+
 /**
  * Limpieza del HTML que escribe el equipo (cuerpo del mensaje, firmas,
  * cabecera y pie corporativos). Más estricta que la de los correos que llegan:
  * solo formato que los clientes de correo entienden y nada que ejecute código.
+ *
+ * Admite los diseños de correo hechos con tablas (los de campaña): colores de
+ * fondo, degradados, esquinas, sombras y mayúsculas. En los estilos no cabe
+ * ":" ni ";", así que ningún `url(...)` puede cargar nada de fuera.
  */
 
 const STYLE = /^[\w\s#%.,()\-/'"]+$/;
 
 export function sanitizeAuthoredHtml(html: string): string {
-  return sanitizeHtml(html, {
+  // Un documento entero (pegado o abierto desde un archivo): solo cuenta el <body>.
+  return sanitizeHtml(bodyOf(html), {
     allowedTags: [
       "p", "br", "div", "span", "strong", "b", "em", "i", "u", "s", "del", "a",
       "ul", "ol", "li", "blockquote", "h1", "h2", "h3", "hr", "img",
       "table", "thead", "tbody", "tr", "td", "th", "small", "sup", "sub", "code", "pre",
     ],
+    // Ni el título ni lo que haya en <head> deben acabar como texto en el mensaje.
+    nonTextTags: ["script", "style", "textarea", "option", "noscript", "title", "head"],
     allowedAttributes: {
       "*": ["style", "align"],
       a: ["href", "target", "rel"],
-      img: ["src", "alt", "width", "height", "style"],
-      td: ["colspan", "rowspan", "width", "valign", "style", "align", "bgcolor"],
-      th: ["colspan", "rowspan", "width", "valign", "style", "align"],
-      table: ["width", "cellpadding", "cellspacing", "border", "style", "role"],
+      img: ["src", "alt", "width", "height", "style", "border"],
+      td: ["colspan", "rowspan", "width", "height", "valign", "style", "align", "bgcolor"],
+      th: ["colspan", "rowspan", "width", "height", "valign", "style", "align", "bgcolor"],
+      table: ["width", "cellpadding", "cellspacing", "border", "style", "role", "bgcolor", "align"],
     },
     allowedStyles: {
       "*": {
@@ -41,7 +50,17 @@ export function sanitizeAuthoredHtml(html: string): string {
         border: [STYLE], "border-top": [STYLE], "border-bottom": [STYLE], "border-left": [STYLE], "border-right": [STYLE],
         "border-radius": [STYLE], "border-collapse": [STYLE],
         width: [STYLE], "max-width": [STYLE], height: [STYLE], "vertical-align": [STYLE],
-        display: [/^(block|inline|inline-block|table|none)$/], "letter-spacing": [STYLE],
+        "min-width": [STYLE], "min-height": [STYLE], "max-height": [STYLE],
+        display: [/^(block|inline|inline-block|table|table-cell|none)$/], "letter-spacing": [STYLE],
+        background: [STYLE], "background-image": [STYLE],
+        "box-shadow": [STYLE],
+        "text-transform": [/^(none|uppercase|lowercase|capitalize)$/],
+        overflow: [/^(hidden|visible|auto)$/],
+        "white-space": [/^(normal|nowrap|pre|pre-wrap|pre-line)$/],
+        "word-break": [/^(normal|break-all|keep-all|break-word)$/],
+        opacity: [/^(0|1|0?\.\d+)$/],
+        "table-layout": [/^(auto|fixed)$/],
+        "mso-hide": [/^all$/],
       },
     },
     allowedSchemes: ["http", "https", "mailto", "tel"],

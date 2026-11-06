@@ -5,6 +5,7 @@ import { convert } from "html-to-text";
 import type { Credentials } from "@/lib/imap";
 import { sanitizeAuthoredHtml, hasContent } from "@/lib/mail/authoring";
 import { getMessage, type Address } from "@/lib/mail/messages";
+import { resolvePart, type MessageParts, type PartDefaults } from "@/lib/mail/parts";
 import { sanitizeIncoming } from "@/lib/mail/render";
 import { escapeHtml, linkify } from "@/lib/mail/text";
 import { getProfile } from "@/lib/profiles";
@@ -13,7 +14,8 @@ import { getOrgTemplates, renderTemplate, variablesFor } from "@/lib/templates";
 /**
  * Monta el mensaje que se envía, igual para enviar, guardar como borrador y
  * la vista previa: cabecera corporativa, cuerpo, firma personal, pie
- * corporativo y, al responder o reenviar, el mensaje original.
+ * corporativo y, al responder o reenviar, el mensaje original. Cabecera, firma
+ * y pie se pueden quitar o cambiar en cada mensaje (lib/mail/parts.ts).
  */
 
 export type ComposeMode = "new" | "reply" | "replyAll" | "forward";
@@ -23,6 +25,20 @@ export interface ComposeInput {
   mode: ComposeMode;
   source: { folder: string; uid: number } | null;
   includeQuote: boolean;
+  /** Lo elegido en este mensaje; lo que no venga, como siempre. */
+  parts?: MessageParts;
+}
+
+/** Cabecera, firma y pie que llevaría un mensaje de esta persona sin tocar nada. */
+export function partDefaultsFor(credentials: Credentials & { name: string }, mode: ComposeMode): PartDefaults {
+  const profile = getProfile(credentials.email, credentials.name);
+  const templates = getOrgTemplates();
+  const corporate = mode === "new" || templates.inReplies;
+  return {
+    header: { include: corporate && templates.header.enabled && hasContent(templates.header.html), html: templates.header.html },
+    signature: { include: hasContent(profile.signatureHtml), html: profile.signatureHtml },
+    footer: { include: corporate && templates.footer.enabled && hasContent(templates.footer.html), html: templates.footer.html },
+  };
 }
 
 const FONT = "Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
@@ -92,21 +108,25 @@ export interface ComposedMessage {
 
 export async function composeMessage(credentials: Credentials & { name: string }, input: ComposeInput): Promise<ComposedMessage> {
   const profile = getProfile(credentials.email, credentials.name);
-  const templates = getOrgTemplates();
   const vars = variablesFor(profile);
-  const corporate = input.mode === "new" || templates.inReplies;
+  const defaults = partDefaultsFor(credentials, input.mode);
+  // Las de siempre ya se limpiaron al guardarlas; las de este mensaje se limpian ahora.
+  const pick = (key: keyof PartDefaults): string | null => {
+    const chosen = input.parts?.[key];
+    const html = resolvePart(defaults[key], chosen);
+    if (html === null) return null;
+    const clean = chosen?.html != null ? sanitizeAuthoredHtml(html) : html;
+    return hasContent(clean) ? renderTemplate(clean, vars) : null;
+  };
+  const header = pick("header");
+  const signature = pick("signature");
+  const footer = pick("footer");
 
   const parts: string[] = [];
-  if (corporate && templates.header.enabled && hasContent(templates.header.html)) {
-    parts.push(`<div style="margin:0 0 16px">${renderTemplate(templates.header.html, vars)}</div>`);
-  }
+  if (header) parts.push(`<div style="margin:0 0 16px">${header}</div>`);
   parts.push(inlineEmailStyles(sanitizeAuthoredHtml(input.bodyHtml)));
-  if (hasContent(profile.signatureHtml)) {
-    parts.push(`<div style="margin-top:16px">${inlineEmailStyles(renderTemplate(profile.signatureHtml, vars))}</div>`);
-  }
-  if (corporate && templates.footer.enabled && hasContent(templates.footer.html)) {
-    parts.push(`<div style="margin-top:16px">${renderTemplate(templates.footer.html, vars)}</div>`);
-  }
+  if (signature) parts.push(`<div style="margin-top:16px">${inlineEmailStyles(signature)}</div>`);
+  if (footer) parts.push(`<div style="margin-top:16px">${footer}</div>`);
   parts.push(await quoteOf(credentials, input));
 
   const html = `<div style="font-family:${FONT};font-size:14px;line-height:1.55;color:#1f2937">${parts.join("\n")}</div>`;

@@ -3,7 +3,10 @@
 import * as React from "react";
 import {
   Check,
+  Code2,
   Eye,
+  FileCode2,
+  LayoutTemplate,
   Loader2,
   Maximize2,
   Minimize2,
@@ -14,11 +17,13 @@ import {
   Send,
   Smartphone,
   Trash2,
+  Type,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { discardDraftAction, previewAction, saveDraftAction, sendAction } from "@/app/actions/mail";
+import { discardDraftAction, messagePartsAction, previewAction, saveDraftAction, sendAction } from "@/app/actions/mail";
+import { BODY_NEEDS_HTML, partsChanged, type MessageParts, type PartDefaults } from "@/lib/mail/parts";
 import { cn } from "@/lib/utils";
 import { RichEditor, type RichEditorHandle } from "@/shared/components/rich-editor";
 import { Button } from "@/shared/components/ui/button";
@@ -26,12 +31,16 @@ import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";
 import { useSpring } from "@/shared/hooks/use-spring";
 
+import type { TemplateVariable } from "../ajustes/template-editor";
 import { formatSize } from "../nav";
 import { useSounds } from "../sound-provider";
 import type { ComposeState, Identity } from "./compose-provider";
+import { PartsDialog } from "./parts-dialog";
 import { RecipientInput, type Recipient } from "./recipient-input";
 
 const MAX_TOTAL = 25 * 1024 * 1024;
+/** Lo mismo que acepta el servidor para el cuerpo del mensaje. */
+const MAX_BODY_CHARS = 2_000_000;
 /** Tras este rato sin escribir, el borrador se guarda solo. */
 const AUTOSAVE_MS = 15_000;
 
@@ -81,7 +90,7 @@ function PreviewDialog({ document, onClose }: { document: string | null; onClose
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          Con tu firma, la cabecera y el pie de rud1 y, si lo has dejado marcado, el mensaje original.
+          Con la cabecera, la firma y el pie que lleve este mensaje y, si lo has dejado marcado, el mensaje original.
         </p>
       </DialogContent>
     </Dialog>
@@ -106,6 +115,19 @@ export function Composer({
   const [showCopies, setShowCopies] = React.useState(initial.cc.length + initial.bcc.length > 0);
   const [subject, setSubject] = React.useState(initial.subject);
   const [bodyHtml, setBodyHtml] = React.useState(initial.bodyHtml);
+  // Visual (editor con formato) o HTML (diseños con tablas, que el visual desharía).
+  const [bodyFormat, setBodyFormat] = React.useState<"visual" | "html">(
+    initial.bodyFormat ?? (BODY_NEEDS_HTML.test(initial.bodyHtml) ? "html" : "visual"),
+  );
+  // Al volver al editor visual, empieza de nuevo con el HTML de ese momento.
+  const [visualKey, setVisualKey] = React.useState(0);
+  const [visualInitial, setVisualInitial] = React.useState(initial.bodyHtml);
+  const htmlFileInput = React.useRef<HTMLInputElement>(null);
+  // Cabecera, firma y pie de este mensaje (lo que no esté aquí, como siempre).
+  const [parts, setParts] = React.useState<MessageParts>(initial.parts ?? {});
+  const [partsOpen, setPartsOpen] = React.useState(false);
+  const [partDefaults, setPartDefaults] = React.useState<PartDefaults | null>(null);
+  const [variables, setVariables] = React.useState<TemplateVariable[]>([]);
   const [includeQuote, setIncludeQuote] = React.useState(initial.includeQuote);
   const [keepAttachments, setKeepAttachments] = React.useState(initial.keepAttachments);
   const [files, setFiles] = React.useState<File[]>([]);
@@ -153,7 +175,9 @@ export function Composer({
     fd.set("cc", JSON.stringify(cc));
     fd.set("bcc", JSON.stringify(bcc));
     fd.set("subject", subject);
-    fd.set("bodyHtml", editorRef.current?.getHtml() ?? bodyHtml);
+    fd.set("bodyHtml", bodyFormat === "visual" ? (editorRef.current?.getHtml() ?? bodyHtml) : bodyHtml);
+    fd.set("bodyFormat", bodyFormat);
+    if (Object.keys(parts).length > 0) fd.set("parts", JSON.stringify(parts));
     fd.set("mode", initial.mode);
     fd.set("references", JSON.stringify(initial.references));
     if (initial.inReplyTo) fd.set("inReplyTo", initial.inReplyTo);
@@ -257,6 +281,57 @@ export function Composer({
     touch();
   }
 
+  // Lo que llevaría el mensaje sin tocar nada: se pide al abrir el diálogo
+  // (o al abrir un borrador que ya cambiaba algo, para marcarlo).
+  const loadPartDefaults = React.useCallback(async () => {
+    try {
+      const result = await messagePartsAction(initial.mode);
+      setPartDefaults(result.defaults);
+      setVariables(result.variables);
+    } catch {
+      toast.error("No se pudieron cargar la cabecera, la firma y el pie.");
+    }
+  }, [initial.mode]);
+
+  React.useEffect(() => {
+    if (initial.parts && Object.keys(initial.parts).length > 0) void loadPartDefaults();
+  }, [initial.parts, loadPartDefaults]);
+
+  function openParts() {
+    setPartsOpen(true);
+    if (!partDefaults) void loadPartDefaults();
+  }
+
+  function switchBodyFormat(next: "visual" | "html") {
+    if (next === bodyFormat) return;
+    if (next === "html") {
+      setBodyHtml(editorRef.current?.getHtml() ?? bodyHtml);
+    } else {
+      if (
+        BODY_NEEDS_HTML.test(bodyHtml) &&
+        !window.confirm("El editor visual no conserva las tablas ni los colores de este diseño. ¿Pasar igualmente?")
+      ) {
+        return;
+      }
+      setVisualInitial(bodyHtml);
+      setVisualKey((k) => k + 1);
+    }
+    setBodyFormat(next);
+    touch();
+  }
+
+  async function openHtmlFile(file: File | undefined) {
+    if (!file) return;
+    if (file.size > MAX_BODY_CHARS) {
+      toast.error("Ese archivo es demasiado grande para el cuerpo de un correo.");
+      return;
+    }
+    if (/[^\s]/.test(bodyHtml.replace(/<[^>]+>/g, "")) && !window.confirm("Se sustituye lo que hay escrito por el archivo. ¿Seguir?")) return;
+    setBodyHtml(await file.text());
+    touch();
+  }
+
+  const partsTouched = partsChanged(partDefaults, parts);
   const busy = sending;
   const mobileFull = !maximized && !minimized;
 
@@ -417,16 +492,50 @@ export function Composer({
               />
             </Row>
 
-            <RichEditor
-              ref={editorRef}
-              initialHtml={initial.bodyHtml}
-              placeholder="Escribe tu mensaje…"
-              className="min-h-0 flex-1"
-              onChange={(html) => {
-                setBodyHtml(html);
-                touch();
-              }}
-            />
+            {bodyFormat === "visual" ? (
+              <RichEditor
+                key={visualKey}
+                ref={editorRef}
+                initialHtml={visualInitial}
+                placeholder="Escribe tu mensaje…"
+                className="min-h-0 flex-1"
+                onChange={(html) => {
+                  setBodyHtml(html);
+                  touch();
+                }}
+              />
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/40 px-4 py-1.5 text-xs text-muted-foreground">
+                  <Code2 className="size-3.5 shrink-0" />
+                  <span className="min-w-0 flex-1">Pega aquí el HTML de un diseño o ábrelo desde un archivo. Para ver cómo queda, usa la vista previa.</span>
+                  <input
+                    ref={htmlFileInput}
+                    type="file"
+                    accept=".html,.htm,text/html"
+                    className="hidden"
+                    onChange={(e) => {
+                      void openHtmlFile(e.target.files?.[0]);
+                      e.target.value = "";
+                    }}
+                  />
+                  <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => htmlFileInput.current?.click()} disabled={busy}>
+                    <FileCode2 className="size-3.5" /> Abrir archivo .html
+                  </Button>
+                </div>
+                <textarea
+                  aria-label="HTML del mensaje"
+                  value={bodyHtml}
+                  onChange={(e) => {
+                    setBodyHtml(e.target.value.slice(0, MAX_BODY_CHARS));
+                    touch();
+                  }}
+                  spellCheck={false}
+                  placeholder="<table>…</table>"
+                  className="min-h-0 flex-1 resize-none bg-transparent px-4 py-3 font-mono text-xs leading-relaxed outline-none"
+                />
+              </div>
+            )}
 
             {(initial.quoteSummary || initial.forwardAttachments > 0 || files.length > 0) && (
               <div className="max-h-36 shrink-0 space-y-1.5 overflow-y-auto border-t border-border/40 px-4 py-2">
@@ -508,6 +617,42 @@ export function Composer({
               <Button variant="ghost" size="icon" aria-label="Guardar borrador" title="Guardar borrador" onClick={() => saveDraft()} disabled={busy}>
                 {saving ? <Loader2 className="animate-spin" /> : <Save />}
               </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="relative"
+                aria-label="Cabecera, firma y pie"
+                title={partsTouched ? "Cabecera, firma y pie (cambiados en este mensaje)" : "Cabecera, firma y pie"}
+                onClick={openParts}
+                disabled={busy}
+              >
+                <LayoutTemplate />
+                {partsTouched && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-primary ring-2 ring-background" />}
+              </Button>
+              <div className="ml-1 flex rounded-lg border border-border/50 p-0.5" role="group" aria-label="Cómo escribir el mensaje">
+                {(
+                  [
+                    ["visual", "Visual", Type, "Editor con formato"],
+                    ["html", "HTML", Code2, "HTML: para diseños con tablas, colores y botones"],
+                  ] as const
+                ).map(([value, label, Icon, hint]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    title={hint}
+                    aria-pressed={bodyFormat === value}
+                    onClick={() => switchBodyFormat(value)}
+                    disabled={busy}
+                    className={cn(
+                      "flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                      bodyFormat === value ? "bg-primary-soft/60 text-primary-foreground dark:text-primary" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Icon className="size-3.5" />
+                    <span className="hidden sm:inline">{label}</span>
+                  </button>
+                ))}
+              </div>
               {totalSize > 0 && <span className="text-xs text-muted-foreground">{formatSize(totalSize)}</span>}
               <span className="ml-auto hidden text-[11px] text-muted-foreground md:inline">Ctrl + Intro para enviar</span>
               <Button variant="ghost" size="icon" aria-label="Descartar" title="Descartar" onClick={discard} disabled={busy}>
@@ -518,6 +663,17 @@ export function Composer({
         )}
       </div>
       <PreviewDialog document={preview} onClose={() => setPreview(null)} />
+      <PartsDialog
+        open={partsOpen}
+        onOpenChange={setPartsOpen}
+        defaults={partDefaults}
+        variables={variables}
+        parts={parts}
+        onChange={(next) => {
+          setParts(next);
+          touch();
+        }}
+      />
     </>
   );
 }
